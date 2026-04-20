@@ -8,13 +8,18 @@ from .models import TurbineMLP
 from .data_loader import format_data
 
 def optimize(df_train, entree, residuelle, inter, n_trials=50):
+    # Détection du GPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     model_name = f"{entree}_{residuelle}_{inter}"
     os.makedirs("hyperparametres", exist_ok=True)
     
     # 1. Formatage et normalisation sur tout le jeu d'entraînement.
-    # Cela garantit que la structure spatiale (les profils entiers) reste intacte 
-    # avant d'être découpée par la validation croisée.
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True)
+    
+    # Transfert global des données sur le GPU ---
+    X_full = X_full.to(device)
+    Y_full = Y_full.to(device)
     
     def objective(trial):
         n_layers = trial.suggest_int('n_layers', 2, 8)
@@ -26,12 +31,13 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
         cv_scores = []
         criterion = nn.MSELoss()
         
-        # 2. Le split se fait sur les Tenseurs, donc on garde des profils complets !
-        for train_idx, val_idx in kf.split(X_full):
+        # 2. Le split se fait sur les index 
+        for train_idx, val_idx in kf.split(range(len(X_full))):
             X_tr, Y_tr = X_full[train_idx], Y_full[train_idx]
             X_val, Y_val = X_full[val_idx], Y_full[val_idx]
             
-            model = TurbineMLP(X_full.shape[1], Y_full.shape[1], n_layers, n_neurons, dropout_rate)
+            # Modèle transféré sur le GPU ---
+            model = TurbineMLP(X_full.shape[1], Y_full.shape[1], n_layers, n_neurons, dropout_rate).to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
             
             model.train()
@@ -57,4 +63,4 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
     with open(f"hyperparametres/{model_name}.json", "w") as f:
         json.dump(study.best_params, f, indent=4)
         
-    print(f"   Modèle {model_name} optimisé. Best MSE: {study.best_value:.4f}")
+    print(f"   Modèle {model_name} optimisé sur {device}. Best MSE: {study.best_value:.4f}")
