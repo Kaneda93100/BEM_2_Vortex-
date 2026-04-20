@@ -1,0 +1,18 @@
+# --- Sorties et fichiers générés ---
+scalers/
+images/
+performance/*
+
+!performance/recap_scores_globaux.csv
+
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+
+.vscode/
+.idea/
+.DS_Store
