@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import pickle
 import torch
 import torch.nn as nn
 import pandas as pd
@@ -18,9 +19,10 @@ from src.physics import convert_u_to_v, convert_v_to_f
 def retrain_and_plot(model_name, rank_label, img_dir="images/"):
     """
     Ré-entraîne le modèle en mémoire pour générer la planche graphique.
+    Applique la dénormalisation avant le tracé.
     SVEN = Points | ML = Lignes
     """
-    print(f" Analyse visuelle détaillée : {model_name} ({rank_label})")
+    print(f"   ▶ Analyse visuelle détaillée : {model_name} ({rank_label})")
     os.makedirs(img_dir, exist_ok=True)
     
     try:
@@ -28,14 +30,15 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
         with open(f"hyperparametres/{model_name}.json", "r") as f:
             hparams = json.load(f)
     except Exception as e:
-        print(f" Erreur : {e}")
+        print(f"   ⚠️ Erreur : {e}")
         return
 
     df_train = pd.read_csv(f"data/processed/train_{entree}.csv")
     df_test = pd.read_csv(f"data/processed/test_{entree}.csv")
     
-    X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter)
-    X_test, Y_test = format_data(df_test, entree, residuelle, inter)
+    # NORMALISATION
+    X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter, is_train=True)
+    X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False)
     
     X_tr, X_val, Y_tr, Y_val = train_test_split(X_full_train.numpy(), Y_full_train.numpy(), test_size=0.2, random_state=42)
     X_tr, Y_tr = torch.tensor(X_tr), torch.tensor(Y_tr)
@@ -66,6 +69,14 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
     with torch.no_grad():
         preds_tr, preds_te = model(X_full_train).numpy(), model(X_test).numpy()
         
+    # --- DÉNORMALISATION DES PRÉDICTIONS ---
+    with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f:
+        scaler_Y = pickle.load(f)
+        
+    preds_tr = scaler_Y.inverse_transform(preds_tr)
+    preds_te = scaler_Y.inverse_transform(preds_te)
+    # ---------------------------------------
+
     df_res_tr = reconstruct_predictions(df_train, preds_tr, entree, residuelle, inter)
     df_res_te = reconstruct_predictions(df_test, preds_te, entree, residuelle, inter)
     
@@ -149,30 +160,74 @@ def _draw_plot(model_name, rank_label, history, df_res_tr, df_res_te, inter, img
     axes[1].legend(style_el, ["SVEN Train", "SVEN Test", "Prédiction ML"], loc='best', fontsize=9)
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
-    plt.savefig(os.path.join(img_dir, f"summary_{rank_label}_{model_name}.png"), dpi=150, bbox_inches='tight')
+    safe_label = rank_label.replace(' ', '_')
+    plt.savefig(os.path.join(img_dir, f"summary_{safe_label}_{model_name}.png"), dpi=150, bbox_inches='tight')
     plt.close()
 
-def generate_summary_table(perf_dir="performance/"):
+def generate_summary_table(perf_dir="performance/", N_tab=2, N_fig=1):
+    """
+    Génère le tableau récapitulatif et les planches graphiques.
+    N_tab : Nombre de modèles par catégorie (Top, Median, Pire) dans le tableau.
+    N_fig : Nombre de modèles par catégorie à tracer en graphique.
+    """
     files = glob.glob(os.path.join(perf_dir, "results_*.csv"))
     if not files: return
+    
     df_all = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
     df_all['Score_Global_%'] = df_all['RMSE_Fn_Rel_%'] + df_all['RMSE_Ft_Rel_%']
     df_all = df_all.sort_values(by='Score_Global_%', ascending=True).reset_index(drop=True)
     n = len(df_all)
-    idx_list = [0, 1, n//2 - 1, n//2, n - 2, n - 1] if n > 6 else range(n)
-    labels = ["TOP 1", "TOP 2", "MEDIAN 1", "MEDIAN 2", "PIRE 2", "PIRE 1"] if n > 6 else [f"Rang {i+1}" for i in range(n)]
-    df_display = df_all.iloc[idx_list].copy(); df_display.insert(0, 'Rang', labels)
     
-    print("\n" + " CLASSEMENT FINAL DES MODÈLES (Basé sur l'Erreur Relative Cumulée)")
+    # Construction dynamique des index pour le Tableau
+    if n <= 3 * N_tab:
+        idx_list = list(range(n))
+        labels = [f"Rang {i+1}" for i in range(n)]
+    else:
+        top_idx = list(range(N_tab))
+        mid_start = (n - N_tab) // 2
+        mid_idx = list(range(mid_start, mid_start + N_tab))
+        bot_idx = list(range(n - N_tab, n))
+        
+        idx_list = top_idx + mid_idx + bot_idx
+        
+        labels = []
+        for i in range(N_tab): labels.append(f"TOP {i+1}")
+        for i in range(N_tab): labels.append(f"MEDIAN {i+1}")
+        for i in range(N_tab, 0, -1): labels.append(f"PIRE {i}") # Ex: PIRE 2, PIRE 1
+
+    df_display = df_all.iloc[idx_list].copy()
+    df_display.insert(0, 'Rang', labels)
+    
+    print("\n" + "🏆 CLASSEMENT FINAL DES MODÈLES (Basé sur l'Erreur Relative Cumulée)")
     print("="*105)
     print(df_display[['Rang', 'Modele', 'Epochs_Conv', 'Score_Global_%', 'RMSE_Fn_Rel_%', 'RMSE_Ft_Rel_%', 'Wasserstein_Fn', 'Wasserstein_Ft']].round(2).to_string(index=False))
     print("="*105)
     print(f"Bilan : {n} modèles évalués. Le meilleur modèle est {df_all.iloc[0]['Modele']}.")
     print("="*105)
 
-    targets = {0: "TOP_1", n // 2: "MEDIAN", n - 1: "PIRE_1"}
+    # Construction dynamique des cibles pour les Images (Figures)
+    print(f"\n🎨 Génération des planches visuelles ({N_fig} par groupe)...")
+    targets = {}
+    
+    # Top N_fig
+    for i in range(min(N_fig, n)):
+        targets[i] = f"TOP_{i+1}"
+        
+    # Median N_fig
+    mid_start = (n - N_fig) // 2
+    for i in range(min(N_fig, n)):
+        idx = mid_start + i
+        if idx not in targets and idx < n:
+            targets[idx] = f"MEDIAN_{i+1}"
+            
+    # Bottom N_fig
+    for i in range(min(N_fig, n)):
+        idx = n - N_fig + i
+        if idx not in targets and idx < n:
+            targets[idx] = f"PIRE_{N_fig - i}"
+
     for idx, lbl in targets.items():
-        if idx < n: retrain_and_plot(df_all.iloc[idx]['Modele'], lbl)
+        retrain_and_plot(df_all.iloc[idx]['Modele'], lbl)
 
 
 generate_summary_table()

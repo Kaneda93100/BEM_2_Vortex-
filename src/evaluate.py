@@ -1,5 +1,6 @@
 import os
 import json
+import pickle
 import torch
 import torch.nn as nn
 import pandas as pd
@@ -80,9 +81,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     with open(hp_path, "r") as f:
         hparams = json.load(f)
         
-    # 2. Préparation des données
-    X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter)
-    X_test, Y_test = format_data(df_test, entree, residuelle, inter)
+    # 2. Préparation des données (Création du Scaler Officiel)
+    X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter, is_train=True)
+    X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False)
     
     # Split train/val pour l'Early Stopping
     X_train, X_val, Y_train, Y_val = train_test_split(X_full_train.numpy(), Y_full_train.numpy(), test_size=0.2, random_state=42)
@@ -100,6 +101,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     best_val_loss = float('inf')
     epochs_no_improve = 0
     epochs_to_converge = 0
+    best_weights = None
     
     for epoch in range(max_epochs):
         model.train()
@@ -117,7 +119,6 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
             best_val_loss = val_loss
             epochs_no_improve = 0
             epochs_to_converge = epoch
-            # Optionnel : Sauvegarder les meilleurs poids ici
             best_weights = model.state_dict()
         else:
             epochs_no_improve += 1
@@ -129,16 +130,23 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     # Restaurer les meilleurs poids
     model.load_state_dict(best_weights)
     
-    # 5. Prédictions sur le Test Set
+    # 5. Prédictions sur le Test Set (Normalisées)
     model.eval()
     with torch.no_grad():
         preds_raw = model(X_test).numpy()
     
-    # RMSE brut de la sortie du réseau (Loss)
-    rmse_nn_raw = np.sqrt(np.mean((preds_raw - Y_test.numpy())**2))
+    # Loss MSE sur les données test (remplace l'ancien RMSE_NN_Raw)
+    test_loss_mse = np.mean((preds_raw - Y_test.numpy())**2)
     
-    # 6. Reconstruire un DataFrame aligné point par point
-    df_res = reconstruct_predictions(df_test, preds_raw, entree, residuelle, inter)
+    # --- NOUVEAU : DÉNORMALISATION DES PRÉDICTIONS ---
+    with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f:
+        scaler_Y = pickle.load(f)
+        
+    preds_denorm = scaler_Y.inverse_transform(preds_raw)
+    # -------------------------------------------------
+    
+    # 6. Reconstruire un DataFrame aligné point par point (avec les valeurs réelles)
+    df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
     
     # 7. Conversions Physiques Vectorisées
     if inter == 'u':
@@ -166,7 +174,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     results = {
         "Modele": model_name,
         "Epochs_Conv": epochs_to_converge,
-        "RMSE_NN_Raw": rmse_nn_raw,
+        "Loss_Test_MSE": test_loss_mse,
         "RMSE_Fn_Abs": rmse_fn,
         "RMSE_Fn_Rel_%": rel_rmse_fn,
         "Wasserstein_Fn": wass_fn,

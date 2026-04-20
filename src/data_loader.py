@@ -3,6 +3,8 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
 import os
+import pickle
+from sklearn.preprocessing import StandardScaler
 
 def load_clean_data(path_forces="data/raw/fichier_forces.csv", 
                     path_vitesses="data/raw/fichier_vitesses.csv", 
@@ -60,10 +62,11 @@ def get_splits(df, entree, save_dir="data/processed/"):
 
     return train_df, test_df
 
-def format_data(df, entree, residuelle, inter):
+def format_data(df, entree, residuelle, inter, is_train=True):
     """
     Transforme les DataFrames Pandas en Tenseurs PyTorch.
-    Gère l'aplatissement pour les méthodes globales.
+    Gère l'aplatissement pour les méthodes globales et applique 
+    une standardisation
     """
     # 1. Sélection des colonnes cibles
     if inter == 'f':
@@ -75,56 +78,42 @@ def format_data(df, entree, residuelle, inter):
     else:
         raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
 
-    # Sécurité : forcer residuelle en string
     res_str = str(residuelle)
 
-    # ==========================================
-    # APPROCHE LOCALE (L)
-    # ==========================================
+    # 2. Extraction des matrices brutes selon l'approche spatiale
     if entree == 'L':
         if res_str == '1':
-            Y = df[cols_sven].values - df[cols_bem].values
-            X = df[['r', 'cos_theta', 'sin_theta'] + cols_bem].values
+            Y_np = df[cols_sven].values - df[cols_bem].values
+            X_np = df[['r', 'cos_theta', 'sin_theta'] + cols_bem].values
         else:
-            Y = df[cols_sven].values
-            X = df[['r', 'cos_theta', 'sin_theta']].values
-            
-        return torch.tensor(X, dtype=torch.float32), torch.tensor(Y, dtype=torch.float32)
+            Y_np = df[cols_sven].values
+            X_np = df[['r', 'cos_theta', 'sin_theta']].values
 
-    # ==========================================
-    # APPROCHE GLOBALE RAYONS FIXÉS (GR)
-    # ==========================================
     elif entree == 'GR':
         grouped = df.groupby('theta')
         X_list, Y_list = [], []
-        
         for th, group in grouped:
             group = group.sort_values('r')
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
-            
             cos_th = group['cos_theta'].iloc[0]
             sin_th = group['sin_theta'].iloc[0]
             
             if res_str == '1':
                 Y_val = y_sven - y_bem
                 X_val = np.concatenate(([cos_th, sin_th], y_bem))
-            else: # Correction appliquée ici
+            else:
                 Y_val = y_sven
                 X_val = np.array([cos_th, sin_th])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
-            
-        return torch.tensor(np.array(X_list), dtype=torch.float32), torch.tensor(np.array(Y_list), dtype=torch.float32)
+        X_np = np.array(X_list)
+        Y_np = np.array(Y_list)
 
-    # ==========================================
-    # APPROCHE GLOBALE AZIMUTS FIXÉS (GA)
-    # ==========================================
     elif entree == 'GA':
         grouped = df.groupby('r')
         X_list, Y_list = [], []
-        
         for r_val, group in grouped:
             group = group.sort_values('theta')
             y_sven = group[cols_sven].values.flatten()
@@ -133,11 +122,42 @@ def format_data(df, entree, residuelle, inter):
             if res_str == '1':
                 Y_val = y_sven - y_bem
                 X_val = np.concatenate(([r_val], y_bem))
-            else: # Correction appliquée ici
+            else:
                 Y_val = y_sven
                 X_val = np.array([r_val])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
+        X_np = np.array(X_list)
+        Y_np = np.array(Y_list)
+
+    # ==========================================
+    # 3. NORMALISATION (StandardScaler)
+    # ==========================================
+    model_name = f"{entree}_{residuelle}_{inter}"
+    os.makedirs("scalers", exist_ok=True)
+    path_x = f"scalers/scaler_X_{model_name}.pkl"
+    path_y = f"scalers/scaler_Y_{model_name}.pkl"
+
+    if is_train:
+        # On apprend la normalisation sur le train et on sauvegarde
+        scaler_X = StandardScaler()
+        scaler_Y = StandardScaler()
+        X_scaled = scaler_X.fit_transform(X_np)
+        Y_scaled = scaler_Y.fit_transform(Y_np)
+        
+        with open(path_x, 'wb') as f:
+            pickle.dump(scaler_X, f)
+        with open(path_y, 'wb') as f:
+            pickle.dump(scaler_Y, f)
+    else:
+        # On charge la normalisation existante pour le test
+        with open(path_x, 'rb') as f:
+            scaler_X = pickle.load(f)
+        with open(path_y, 'rb') as f:
+            scaler_Y = pickle.load(f)
             
-        return torch.tensor(np.array(X_list), dtype=torch.float32), torch.tensor(np.array(Y_list), dtype=torch.float32)
+        X_scaled = scaler_X.transform(X_np)
+        Y_scaled = scaler_Y.transform(Y_np)
+
+    return torch.tensor(X_scaled, dtype=torch.float32), torch.tensor(Y_scaled, dtype=torch.float32)
