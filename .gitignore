@@ -1,3 +1,4 @@
+# Ne garder que slides.tex et loadslides.tex
 \Rapport\*.aux
 \Rapport\*.bcf
 \Rapport\*.fdb_latexmk
@@ -11,3 +12,22 @@
 \Rapport\*.gz
 \Rapport\*.toc
 \Rapport\*.vrb
+
+# --- Sorties et fichiers générés ---
+scalers/
+images/
+performance/*
+
+!performance/recap_scores_globaux.csv
+
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+
+.vscode/
+.idea/
+.DS_Store
