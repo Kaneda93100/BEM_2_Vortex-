@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.1.19)  21 APR 2026 11:54
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.1.19)  21 APR 2026 13:20
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -1343,78 +1343,147 @@ LaTeX Font Info:    Font shape `T1/phv/m/n' will be
 ] [3
 
 ]
-LaTeX Font Info:    Trying to load font information for U+msa on input line 61.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 67.
  (c:/texlive/2025/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 61.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 67.
  (c:/texlive/2025/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
 LaTeX Font Info:    Font shape `T1/phv/m/it' in size <10.95> not available
-(Font)              Font shape `T1/phv/m/sl' tried instead on input line 61.
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 67.
 LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
-(Font)              scaled to size 10.40245pt on input line 61.
+(Font)              scaled to size 10.40245pt on input line 67.
 LaTeX Font Info:    Font shape `T1/phv/m/it' in size <8> not available
-(Font)              Font shape `T1/phv/m/sl' tried instead on input line 61.
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 67.
 LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
-(Font)              scaled to size 7.59998pt on input line 61.
+(Font)              scaled to size 7.59998pt on input line 67.
 LaTeX Font Info:    Font shape `T1/phv/m/it' in size <6> not available
-(Font)              Font shape `T1/phv/m/sl' tried instead on input line 61.
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 67.
 LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
-(Font)              scaled to size 5.69998pt on input line 61.
-LaTeX Font Info:    Font shape `T1/phv/m/n' will be
-(Font)              scaled to size 6.64998pt on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/n' will be
-(Font)              scaled to size 4.74998pt on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/it' in size <10> not available
-(Font)              Font shape `T1/phv/m/sl' tried instead on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
-(Font)              scaled to size 9.49997pt on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/it' in size <7> not available
-(Font)              Font shape `T1/phv/m/sl' tried instead on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
-(Font)              scaled to size 6.64998pt on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/it' in size <5> not available
-(Font)              Font shape `T1/phv/m/sl' tried instead on input line 105.
-LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
-(Font)              scaled to size 4.74998pt on input line 105.
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
+(Font)              scaled to size 5.69998pt on input line 67.
  [4
 
-] [5] [6
+]
+LaTeX Font Info:    Font shape `T1/phv/m/n' will be
+(Font)              scaled to size 6.64998pt on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/n' will be
+(Font)              scaled to size 4.74998pt on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/it' in size <10> not available
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
+(Font)              scaled to size 9.49997pt on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/it' in size <7> not available
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
+(Font)              scaled to size 6.64998pt on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/it' in size <5> not available
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 109.
+LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
+(Font)              scaled to size 4.74998pt on input line 109.
+ [5
+
+] [6
 
 ] [7
 
-] [8
-
-] [9
-
 ]
-Overfull \hbox (18.43277pt too wide) in paragraph at lines 248--248
- [] 
+LaTeX Font Info:    Font shape `T1/phv/b/n' will be
+(Font)              scaled to size 9.49997pt on input line 214.
+
+Overfull \vbox (1.25081pt too high) detected at line 214
  []
 
-[10
+[8
 
-] [11
+]
+<NACA64_fourier.png, id=94, 903.375pt x 392.06474pt>
+File: NACA64_fourier.png Graphic file (type png)
+<use NACA64_fourier.png>
+Package pdftex.def Info: NACA64_fourier.png  used on input line 229.
+(pdftex.def)             Requested size: 241.84843pt x 104.96153pt.
+LaTeX Font Info:    Font shape `T1/phv/m/n' will be
+(Font)              scaled to size 8.54997pt on input line 229.
+LaTeX Font Info:    Font shape `T1/phv/b/n' will be
+(Font)              scaled to size 8.54997pt on input line 229.
+<NACA64_splines.png, id=96, 910.90312pt x 398.08725pt>
+File: NACA64_splines.png Graphic file (type png)
+<use NACA64_splines.png>
+Package pdftex.def Info: NACA64_splines.png  used on input line 229.
+(pdftex.def)             Requested size: 241.84843pt x 105.69307pt.
+LaTeX Font Info:    Font shape `T1/phv/m/it' in size <14.4> not available
+(Font)              Font shape `T1/phv/m/sl' tried instead on input line 229.
+LaTeX Font Info:    Font shape `T1/phv/m/sl' will be
+(Font)              scaled to size 13.67995pt on input line 229.
+ [9
 
-] [12
+ <./NACA64_fourier.png> <./NACA64_splines.png>]
+<NACA64_PCA.png, id=104, 903.375pt x 424.58624pt>
+File: NACA64_PCA.png Graphic file (type png)
+<use NACA64_PCA.png>
+Package pdftex.def Info: NACA64_PCA.png  used on input line 243.
+(pdftex.def)             Requested size: 241.84843pt x 113.66801pt.
+<NACA64-VAE.png, id=105, 918.43124pt x 369.48038pt>
+File: NACA64-VAE.png Graphic file (type png)
+<use NACA64-VAE.png>
+Package pdftex.def Info: NACA64-VAE.png  used on input line 243.
+(pdftex.def)             Requested size: 241.84843pt x 97.29167pt.
+ [10
 
-] [13
+ <./NACA64_PCA.png> <./NACA64-VAE.png>]
+<TOWER_fourier.png, id=113, 906.9885pt x 410.13225pt>
+File: TOWER_fourier.png Graphic file (type png)
+<use TOWER_fourier.png>
+Package pdftex.def Info: TOWER_fourier.png  used on input line 258.
+(pdftex.def)             Requested size: 241.84843pt x 109.3604pt.
+<TOWER_splines.png, id=114, 917.52788pt x 389.0535pt>
+File: TOWER_splines.png Graphic file (type png)
+<use TOWER_splines.png>
+Package pdftex.def Info: TOWER_splines.png  used on input line 258.
+(pdftex.def)             Requested size: 241.84843pt x 102.54659pt.
+ [11
+
+ <./TOWER_fourier.png> <./TOWER_splines.png>]
+<TOWER_pca.png, id=122, 915.42pt x 471.86287pt>
+File: TOWER_pca.png Graphic file (type png)
+<use TOWER_pca.png>
+Package pdftex.def Info: TOWER_pca.png  used on input line 272.
+(pdftex.def)             Requested size: 241.84843pt x 124.66145pt.
+<TOWER_vae.png, id=123, 919.93687pt x 315.27788pt>
+File: TOWER_vae.png Graphic file (type png)
+<use TOWER_vae.png>
+Package pdftex.def Info: TOWER_vae.png  used on input line 272.
+(pdftex.def)             Requested size: 241.84843pt x 82.88435pt.
+ [12
+
+ <./TOWER_pca.png> <./TOWER_vae.png>] [13
 
 ] [14
 
 ]
-Overfull \hbox (22.4928pt too wide) in paragraph at lines 315--315
- [][] 
+Overfull \hbox (18.43277pt too wide) in paragraph at lines 353--353
+ [] 
  []
 
 [15
 
-{c:/texlive/2025/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc}] [16
+] [16
+
+] [17
+
+] [18
+
+] [19
+
+]
+Overfull \hbox (22.4928pt too wide) in paragraph at lines 420--420
+ [][] 
+ []
+
+[20
+
+{c:/texlive/2025/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc}] [21
 
 ]
 \tf@nav=\write7
@@ -1432,24 +1501,24 @@ LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-29>
  ***********
 Package rerunfilecheck Info: File `slide.out' has not changed.
-(rerunfilecheck)             Checksum: AFD96303845EF9333E187E13024904A0;1027.
+(rerunfilecheck)             Checksum: 8931FEA62CCA444A3141A10BE7D8D1B8;1028.
 Package logreq Info: Writing requests to 'slide.run.xml'.
 \openout1 = `slide.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 49452 strings out of 467538
- 1136799 string characters out of 5423725
- 2163230 words of memory out of 5000000
- 77442 multiletter control sequences out of 15000+600000
- 692006 words of font info for 102 fonts, out of 8000000 for 9000
+ 49583 strings out of 467538
+ 1139240 string characters out of 5423725
+ 2164230 words of memory out of 5000000
+ 77557 multiletter control sequences out of 15000+600000
+ 704926 words of font info for 116 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  128i,13n,126p,2157b,5183s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmss10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmss8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/cm-super/sftt1095.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/helvetic/uhvb8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/helvetic/uhvr8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/helvetic/uhvro8a.pfb>
-Output written on slide.pdf (16 pages, 146521 bytes).
+Output written on slide.pdf (21 pages, 3627609 bytes).
 PDF statistics:
- 206 PDF objects out of 1000 (max. 8388607)
- 153 compressed objects within 2 object streams
- 38 named destinations out of 1000 (max. 500000)
- 83 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 250 PDF objects out of 1000 (max. 8388607)
+ 176 compressed objects within 2 object streams
+ 48 named destinations out of 1000 (max. 500000)
+ 123 words of extra memory for PDF output out of 10000 (max. 10000000)
 

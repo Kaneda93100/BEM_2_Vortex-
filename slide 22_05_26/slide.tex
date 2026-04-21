@@ -55,13 +55,17 @@ sa rapidité d'exécution.
 \section{Présentation de l'approche}
 
 \subsection{Corrections locales/Globales}
-\begin{center}
+
+\begin{frame}{Deux familles de correction}
+    \begin{center}
     Deux premières familles de modèles sont envisagées
     \begin{itemize}
     \item Les corrections \textcolor{blue}{locales}
     \item Les corrections \textcolor{blue}{globales}
     \end{itemize}
 \end{center}
+\end{frame}
+
 
 \begin{frame}{Approche locale}
     Approche locale : inférences sur les efforts par sections radiale. 
@@ -164,6 +168,107 @@ Ce qui laisse comme set de variable d'entraînement :
     \item Vitesse freestream
     \item Yaw
 \end{itemize}
+\end{frame}
+
+\begin{frame}{Le cas des profils}
+    Les $C_L$ et les $C_D$ pourraient être intégrés au paramètres d'entraînement (l'attribution des profils ne dépendant pas directement du design de la pale).
+
+    \vspace{0.1cm}
+
+    Une possibilité est d'encoder les profils en des vecteurs contenant les coefficients de l'interpolation. 
+    \begin{table}
+        \centering
+        \begin{tabular}{|l|c|c|c|c|}
+            \hline
+             & Fourier & B-spline & PCA \\
+            \hline
+            NACA64-418 &173 & 288 &3     \\
+            \hline
+            TRANSI\_CD\_2&133 &239 &3   \\
+            \hline
+            TRANSI\_DR\_2&52 &58 &3     \\
+            \hline
+            RISOE  &49  &64 &3          \\
+            \hline
+            TOWER&1 &1 &1               \\
+            \hline
+            TRANSI\_RN\_1&62 &115 &3    \\
+            \hline
+            TRANSI\_CD\_1&133 &239 &2   \\
+            \hline
+            CYLINDER&1 &4 &1            \\
+            \hline
+            TRANSI\_DR\_1&93 &162 &2    \\
+            \hline
+            TRANSI\_RN\_2&154 &255 &3   \\
+            \hline
+            TRANSI\_CD\_3&133 &239 &3   \\
+            \hline
+            DU91-W2-250&133 &239 &3     \\
+            \hline
+        \end{tabular}
+        \caption{Nombre de modes nécéssaire pour reconstruire $C_L$ avec une erreur relative $~0.05$ selon différents profils}
+    \end{table}
+Les $C_D$ sont en général plus simple à approcher, on se concentrera sur $C_L$ pour représenter le nombre de mode significatif.
+Une méthode VAE à également été utilisée. On notera que sur les profils constants, la PCA et la VAE échouent complètement.
+\end{frame}
+
+\begin{frame}{$C_L$ sur le profil NACA64}
+    \begin{figure}[ht]
+        \centering
+        \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{NACA64_fourier.png}
+            \caption{Fourier}
+        \end{subfigure}
+        \hfill
+        \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{NACA64_splines.png}
+            \caption{B-splines}
+        \end{subfigure}
+\end{figure}
+\end{frame}
+
+\begin{frame}{$C_L$ sur le profil NACA64}
+    \begin{figure}[ht]
+            \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{NACA64_PCA.png}
+            \caption{PCA}        
+        \end{subfigure}
+        \hfill
+        \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{NACA64-VAE.png}
+            \caption{VAE}        
+        \end{subfigure}        
+    \end{figure}
+\end{frame}
+
+\begin{frame}{$C_L$ sur le profil TOWER}
+    \begin{figure}[ht]
+        \centering
+        \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{TOWER_fourier.png}
+            \caption{Fourier}
+        \end{subfigure}
+        \hfill
+        \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{TOWER_splines.png}
+            \caption{B-splines}
+        \end{subfigure}
+\end{figure}
+\end{frame}
+
+\begin{frame}{$C_D$ sur le profil TOWER}
+    \begin{figure}[ht]
+            \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{TOWER_pca.png}
+            \caption{PCA}        
+        \end{subfigure}
+        \hfill
+        \begin{subfigure}{0.5\linewidth}
+            \includegraphics[width=\linewidth]{TOWER_vae.png}
+            \caption{VAE}        
+        \end{subfigure}        
+    \end{figure}
 \end{frame}
 
 \begin{frame}{Objectif de long terme}
