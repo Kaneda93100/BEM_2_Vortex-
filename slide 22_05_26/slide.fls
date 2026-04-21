@@ -598,6 +598,9 @@ INPUT ./slide.toc
 INPUT ./slide.toc
 INPUT slide.toc
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/adobe/helvetic/phvr8t.tfm
+INPUT c:/texlive/2025/texmf-dist/fonts/tfm/adobe/helvetic/phvr8t.tfm
+INPUT c:/texlive/2025/texmf-dist/fonts/vf/adobe/helvetic/phvr8t.vf
+INPUT c:/texlive/2025/texmf-dist/fonts/tfm/adobe/helvetic/phvr8r.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/vf/adobe/helvetic/phvr8t.vf
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/adobe/helvetic/phvr8r.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
@@ -660,7 +663,6 @@ INPUT ./NACA64_fourier.png
 INPUT ./NACA64_fourier.png
 INPUT ./NACA64_fourier.png
 INPUT ./NACA64_fourier.png
-INPUT c:/texlive/2025/texmf-dist/fonts/tfm/adobe/helvetic/phvr8t.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/adobe/helvetic/phvb8t.tfm
 INPUT ./NACA64_splines.png
 INPUT ./NACA64_splines.png

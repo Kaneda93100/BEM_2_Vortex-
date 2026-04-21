@@ -35,10 +35,14 @@
 
 % Generate title page
 
-\setbeamertemplate{footline}{} 
+\setbeamertemplate{footline}{}
 \begin{frame}
   \titlepage
 \end{frame}
+
+\setbeamertemplate{footline}{
+  \hfill\insertframenumber/\inserttotalframenumber\hspace{1em}\vspace{0.5em}
+}
 
 \begin{frame}
     \tableofcontents
@@ -169,6 +173,9 @@ Ce qui laisse comme set de variable d'entraînement :
     \item Yaw
 \end{itemize}
 \end{frame}
+\subsection{Le cas des profils}
+
+\subsubsection{Piste d'ajout des profils à l'espace des paramètres}
 
 \begin{frame}{Le cas des profils}
     Les $C_L$ et les $C_D$ pourraient être intégrés au paramètres d'entraînement (l'attribution des profils ne dépendant pas directement du design de la pale).
@@ -213,7 +220,9 @@ Les $C_D$ sont en général plus simple à approcher, on se concentrera sur $C_L
 Une méthode VAE à également été utilisée. On notera que sur les profils constants, la PCA et la VAE échouent complètement.
 \end{frame}
 
-\begin{frame}{$C_L$ sur le profil NACA64}
+\subsubsection{Résulats graphiques}
+
+\begin{frame}{$C_L$ et $C_D$ sur le profil NACA64}
     \begin{figure}[ht]
         \centering
         \begin{subfigure}{0.5\linewidth}
@@ -228,7 +237,7 @@ Une méthode VAE à également été utilisée. On notera que sur les profils co
 \end{figure}
 \end{frame}
 
-\begin{frame}{$C_L$ sur le profil NACA64}
+\begin{frame}{$C_L$ et $C_D$ sur le profil NACA64}
     \begin{figure}[ht]
             \begin{subfigure}{0.5\linewidth}
             \includegraphics[width=\linewidth]{NACA64_PCA.png}
@@ -242,7 +251,7 @@ Une méthode VAE à également été utilisée. On notera que sur les profils co
     \end{figure}
 \end{frame}
 
-\begin{frame}{$C_L$ sur le profil TOWER}
+\begin{frame}{$C_L$ et $C_D$ sur le profil TOWER}
     \begin{figure}[ht]
         \centering
         \begin{subfigure}{0.5\linewidth}
@@ -257,7 +266,7 @@ Une méthode VAE à également été utilisée. On notera que sur les profils co
 \end{figure}
 \end{frame}
 
-\begin{frame}{$C_D$ sur le profil TOWER}
+\begin{frame}{$C_L$ et $C_D$ sur le profil TOWER}
     \begin{figure}[ht]
             \begin{subfigure}{0.5\linewidth}
             \includegraphics[width=\linewidth]{TOWER_pca.png}

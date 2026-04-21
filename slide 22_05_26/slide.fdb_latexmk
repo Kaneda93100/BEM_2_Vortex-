@@ -1,12 +1,12 @@
 # Fdb version 4
-["biber slide"] 0 "slide.bcf" "slide.bbl" "slide" 1776770453.87028 0
+["biber slide"] 0 "slide.bcf" "slide.bbl" "slide" 1776771270.50373 0
   "references.bib" 0 -1 0 ""
   "slide.bcf" 0 -1 0 "pdflatex"
   (generated)
   "slide.bbl"
   "slide.blg"
   (rewritten before read)
-["pdflatex"] 1776770440.62409 "c:/GitHub/BEM_2_Vortex-/slide 22_05_26/slide.tex" "slide.pdf" "slide" 1776770453.87184 0
+["pdflatex"] 1776771257.6331 "c:/GitHub/BEM_2_Vortex-/slide 22_05_26/slide.tex" "slide.pdf" "slide" 1776771270.50571 0
   "NACA64-VAE.png" 1776769150 494196 716003c77987c01ece9e3c287fa91961 ""
   "NACA64_PCA.png" 1776769009 583005 9b8e4d2012b3b040486f471ed97a8ecf ""
   "NACA64_fourier.png" 1776769105 592302 2ea9920166b09f6c76bf99929b6f07a7 ""
@@ -15,7 +15,7 @@
   "TOWER_pca.png" 1776770060 531538 725f8ab1badcc9e5a97dc26140865ccc ""
   "TOWER_splines.png" 1776770023 325069 6d1e004eadd77336996a43fd62b96abb ""
   "TOWER_vae.png" 1776770099 896423 5601e1e5b54dbdf98a42fa7d2076a2db ""
-  "c:/GitHub/BEM_2_Vortex-/slide 22_05_26/slide.tex" 1776770439 15687 42c7c630d176fdfb3e9e893a5b62866c ""
+  "c:/GitHub/BEM_2_Vortex-/slide 22_05_26/slide.tex" 1776771243 15982 9b0cb21f03a43aa4a85dd9a3b11ff4b6 ""
   "c:/texlive/2025/texmf-dist/fonts/enc/dvips/base/8r.enc" 1768843397 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "c:/texlive/2025/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc" 1768825698 2971 def0b6c1f0b107b3b936def894055589 ""
   "c:/texlive/2025/texmf-dist/fonts/map/fontname/texfonts.map" 1768848020 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -348,13 +348,13 @@
   "c:/texlive/2025/texmf-var/web2c/pdftex/pdflatex.fmt" 1768851140 3635707 8b54c3f4c4221ef84351c4aa8c399d28 ""
   "c:/texlive/2025/texmf.cnf" 1768850976 713 e69b156964470283e0530f5060668171 ""
   "loadslides.tex" 1776764034 3487 3fe4cecee44d33f61d7b19e2880d2c4f ""
-  "slide.aux" 1776770452 5540 720aa899f4b714e3438c3c39b2d8ba30 "pdflatex"
+  "slide.aux" 1776771269 6358 f56b1750f0f782573effa5a312dee3a3 "pdflatex"
   "slide.bbl" 0 -1 0 "biber slide"
-  "slide.nav" 1776770452 3374 0fd28d18ba5a98e64bac5804aa71d5c0 "pdflatex"
-  "slide.out" 1776770452 1028 8931fea62cca444a3141a10be7d8d1b8 "pdflatex"
-  "slide.run.xml" 1776770452 2468 6157d94511f22d1b7cad13e5c897d06d "pdflatex"
-  "slide.tex" 1776770439 15687 42c7c630d176fdfb3e9e893a5b62866c ""
-  "slide.toc" 1776770452 703 60f8cb8efd95d55e25a27cffc50b8aa6 "pdflatex"
+  "slide.nav" 1776771269 3624 8924a731778874b3137c6799a67a7aa4 "pdflatex"
+  "slide.out" 1776771269 1184 ba8c1bcd9ef67ffde03e1d123de0b27e "pdflatex"
+  "slide.run.xml" 1776771269 2468 6157d94511f22d1b7cad13e5c897d06d "pdflatex"
+  "slide.tex" 1776771243 15982 9b0cb21f03a43aa4a85dd9a3b11ff4b6 ""
+  "slide.toc" 1776771269 1145 68f23403b658f8d654935f1d01b53333 "pdflatex"
   "styles/beamercolorthemeelegant.sty" 1776708372 3878 4258af8fbaca016dcbc75e52902c48e7 ""
   "styles/beamerfontthemeelegant.sty" 1776708381 988 66866602cbc9a3f68add9d224432215f ""
   "styles/beamerinnerthemeelegant.sty" 1776708390 5654 a25b4beaff04248dcecd04a3837d74e5 ""
