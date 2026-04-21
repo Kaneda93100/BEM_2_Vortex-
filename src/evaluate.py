@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
 from scipy.stats import wasserstein_distance
 from .models import TurbineMLP
 from .data_loader import format_data
@@ -58,7 +57,6 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
     return pd.merge(df_test, df_preds, on=['r', 'theta'])
 
 def evaluator(df_train, df_test, entree, residuelle, inter):
-    # Support GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_name = f"{entree}_{residuelle}_{inter}"
     print(f"--- Évaluation : {model_name} ({device}) ---")
@@ -68,41 +66,35 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     if not os.path.exists(hp_path): return
     with open(hp_path, "r") as f: hparams = json.load(f)
         
-    # 2. Données
+    # 2. Données (100% pour l'entraînement, pas de split)
     X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter, is_train=True)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False)
     
-    X_tr, X_val, Y_tr, Y_val = train_test_split(X_full_train.numpy(), Y_full_train.numpy(), test_size=0.2, random_state=42)
-    
-    X_tr, Y_tr = torch.tensor(X_tr).to(device), torch.tensor(Y_tr).to(device)
-    X_val, Y_val = torch.tensor(X_val).to(device), torch.tensor(Y_val).to(device)
+    X_full_train_dev = X_full_train.to(device)
+    Y_full_train_dev = Y_full_train.to(device)
     X_test_dev = X_test.to(device)
     
     # 3. Modèle
-    model = TurbineMLP(X_tr.shape[1], Y_tr.shape[1], hparams['n_layers'], hparams['n_neurons'], hparams['dropout_rate']).to(device)
+    model = TurbineMLP(X_full_train.shape[1], Y_full_train.shape[1], hparams['n_layers'], hparams['n_neurons'], hparams['dropout_rate']).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
     criterion = nn.MSELoss()
     
-    # 4. Entraînement
-    best_val_loss, epochs_no_improve, epochs_to_converge, best_weights = float('inf'), 0, 0, None
-    for epoch in range(2000):
-        model.train(); optimizer.zero_grad()
-        loss = criterion(model(X_tr), Y_tr)
-        loss.backward(); optimizer.step()
-        model.eval()
-        with torch.no_grad():
-            val_loss = criterion(model(X_val), Y_val).item()
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss; epochs_no_improve = 0; epochs_to_converge = epoch; best_weights = model.state_dict()
-        else:
-            epochs_no_improve += 1
-        if epochs_no_improve >= 50: break
-            
-    model.load_state_dict(best_weights)
+    # 4. Entraînement Fixe (1000 epochs)
+    epochs = 1000
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        loss = criterion(model(X_full_train_dev), Y_full_train_dev)
+        loss.backward()
+        optimizer.step()
     
     # 5. Prédictions & Dénormalisation
     model.eval()
-    with torch.no_grad(): preds_raw = model(X_test_dev).cpu().numpy()
+    with torch.no_grad(): 
+        preds_raw = model(X_test_dev).cpu().numpy()
+        
+    test_loss_mse = np.mean((preds_raw - Y_test.numpy())**2)
+    
     with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f: scaler_Y = pickle.load(f)
     preds_denorm = scaler_Y.inverse_transform(preds_raw)
     
@@ -125,10 +117,30 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     wass_fn = wasserstein_distance(Fn_s, Fn_p)
     wass_ft = wasserstein_distance(Ft_s, Ft_p)
 
-    # 8. RECAPITULATIF 
+    # 8. DICTIONNAIRES
+    results_detail = {
+        "Modele": model_name,
+        "Epochs_Conv": epochs,
+        "Score_Global_%": rel_fn + rel_ft,
+        "Loss_Test_MSE": test_loss_mse,
+        "RMSE_Fn_Abs": rmse_fn,
+        "RMSE_Fn_Rel_%": rel_fn,
+        "Wasserstein_Fn": wass_fn,
+        "RMSE_Ft_Abs": rmse_ft,
+        "RMSE_Ft_Rel_%": rel_ft,
+        "Wasserstein_Ft": wass_ft
+    }
+    
+    if inter in ['u', 'v']:
+        results_detail["RMSE_Veff_Abs"] = np.sqrt(np.mean((df_res['V_eff_pred'].values - df_res['V_eff_SVEN'].values)**2))
+        results_detail["RMSE_Alpha_Abs"] = np.sqrt(np.mean((df_res['alpha_pred'].values - df_res['alpha_SVEN'].values)**2))
+    if inter == 'u':
+        results_detail["RMSE_Induction_a"] = np.sqrt(np.mean((df_res['a_pred'].values - df_res['a_SVEN'].values)**2))
+        results_detail["RMSE_AngleFlux_phi"] = np.sqrt(np.mean((df_res['phi_pred'].values - df_res['phi_SVEN'].values)**2))
+
     recap_data = {
         "Modele": model_name,
-        "Epochs_Conv": epochs_to_converge,
+        "Epochs_Conv": epochs,
         "Score_Global_%": rel_fn + rel_ft,
         "RMSE_Fn_Rel_%": rel_fn,
         "RMSE_Ft_Rel_%": rel_ft,
@@ -136,8 +148,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
         "Wasserstein_Ft": wass_ft
     }
 
-    # Sauvegarde globale
+    # 9. SAUVEGARDE
     os.makedirs("performance", exist_ok=True)
+    pd.DataFrame([results_detail]).to_csv(f"performance/results_{model_name}.csv", index=False)
+
     recap_path = "performance/recap_scores_globaux.csv"
     if os.path.exists(recap_path):
         df_recap = pd.read_csv(recap_path)
@@ -149,4 +163,4 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     df_recap = df_recap.sort_values(by="Score_Global_%", ascending=True).reset_index(drop=True)
     df_recap.to_csv(recap_path, index=False)
     
-    print(f"   Terminé ! Score: {recap_data['Score_Global_%']:.2f}%")
+    print(f" Terminé ! Score: {recap_data['Score_Global_%']:.2f}%")

@@ -45,7 +45,7 @@ def main():
                 # --- PHASE 1 : OPTIMISATION ---
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
-                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
+                #optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=200)
                 opt_duration = time.time() - opt_start
                 print(f"   >> Temps Optimisation : {format_duration(opt_duration)}")
                 

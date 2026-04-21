@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from sklearn.model_selection import train_test_split
 
 # Imports internes
 from src.data_loader import format_data
@@ -35,38 +34,33 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
     X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter, is_train=True)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False)
     
-    X_tr, X_val, Y_tr, Y_val = train_test_split(X_full_train.numpy(), Y_full_train.numpy(), test_size=0.2, random_state=42)
-    
-    X_tr, Y_tr = torch.tensor(X_tr).to(device), torch.tensor(Y_tr).to(device)
-    X_val, Y_val = torch.tensor(X_val).to(device), torch.tensor(Y_val).to(device)
-    X_full_train_dev = X_full_train.to(device)
-    X_test_dev = X_test.to(device)
+    # Entraînement sur toutes les données d'entraînement (plus de split de validation)
+    X_tr, Y_tr = X_full_train.to(device), Y_full_train.to(device)
+    X_test_dev, Y_test_dev = X_test.to(device), Y_test.to(device)
     
     model = TurbineMLP(X_tr.shape[1], Y_tr.shape[1], hparams['n_layers'], hparams['n_neurons'], hparams['dropout_rate']).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
     criterion = nn.MSELoss()
     
-    history = {'epoch': [], 'train_loss': [], 'val_loss': []}
-    patience = 400 # Patience augmentée pour la synthèse visuelle
-    best_val_loss, best_weights = float('inf'), None
+    history = {'epoch': [], 'train_loss': []}
     
-    for epoch in range(2000):
-        model.train(); optimizer.zero_grad()
+    # Entraînement continu sans early stopping
+    for epoch in range(1000):
+        model.train()
+        optimizer.zero_grad()
         loss = criterion(model(X_tr), Y_tr)
-        loss.backward(); optimizer.step()
-        model.eval()
-        with torch.no_grad():
-            val_loss = criterion(model(X_val), Y_val).item()
-        history['epoch'].append(epoch); history['train_loss'].append(loss.item()); history['val_loss'].append(val_loss)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss; epochs_no_improve = 0; best_weights = model.state_dict()
-        else:
-            epochs_no_improve += 1
-        if epochs_no_improve >= patience: break
+        loss.backward()
+        optimizer.step()
+        
+        history['epoch'].append(epoch)
+        history['train_loss'].append(loss.item())
             
-    model.load_state_dict(best_weights); model.eval()
+    model.eval()
     with torch.no_grad():
-        preds_tr = model(X_full_train_dev).cpu().numpy()
+        # Calcul de la loss de test (une seule fois à la fin)
+        test_loss = criterion(model(X_test_dev), Y_test_dev).item()
+        
+        preds_tr = model(X_tr).cpu().numpy()
         preds_te = model(X_test_dev).cpu().numpy()
         
     with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f:
@@ -93,9 +87,9 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
         metrics[f'{col}_abs'] = np.sqrt(np.mean((p - s)**2))
         metrics[f'{col}_rel'] = (metrics[f'{col}_abs'] / np.mean(np.abs(s)) * 100) if np.mean(np.abs(s)) != 0 else 0
 
-    _draw_plot(model_name, rank_label, history, df_res_tr, df_res_te, inter, img_dir, metrics)
+    _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te, inter, img_dir, metrics)
 
-def _draw_plot(model_name, rank_label, history, df_res_tr, df_res_te, inter, img_dir, metrics):
+def _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te, inter, img_dir, metrics):
     n_cols = 4 if inter in ['u', 'v'] else 2
     n_rows = 3
     
@@ -124,7 +118,8 @@ def _draw_plot(model_name, rank_label, history, df_res_tr, df_res_te, inter, img
     # 1. Convergence
     ax_h = plt.subplot2grid((n_rows, n_cols), (0, 0), colspan=n_cols)
     ax_h.plot(history['epoch'], history['train_loss'], color='blue', label='Train MSE')
-    ax_h.plot(history['epoch'], history['val_loss'], color='red', linestyle='--', label='Val MSE')
+    # Droite horizontale pour l'erreur de test
+    ax_h.axhline(y=test_loss, color='red', linestyle='--', label=f'Test MSE: {test_loss:.4e}')
     ax_h.set_yscale('log'); ax_h.set_title("Convergence", fontsize=14); ax_h.grid(True, alpha=0.3); ax_h.legend()
 
     plot_cols = [('Fn', 'Force Normale'), ('Ft', 'Force Tangentielle')]
