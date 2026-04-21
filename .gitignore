@@ -1,3 +1,17 @@
+# Ne garder que slides.tex et loadslides.tex
+slide/*.aux
+slide/*.bcf
+slide/*.fdb_latexmk
+slide/*.fls
+slide/*.log
+slide/*.nav
+slide/*.out
+slide/*.pdf
+slide/*.snm
+slide/*.gz
+slide/*.toc
+slide/*.vrb
+
 # --- Sorties et fichiers générés ---
 scalers/
 images/
