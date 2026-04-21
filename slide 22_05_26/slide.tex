@@ -1,0 +1,321 @@
+% Copyright (c) 2022 by Lars Spreng
+% This work is licensed under the Creative Commons Attribution 4.0 International License. 
+% To view a copy of this license, visit http://creativecommons.org/licenses/by/4.0/ or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
+%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+% You can add your packages and commands to the loadslides.tex file. 
+% The files in the folder "styles" can be modified to change the layout and design of your slides.
+% I have included examples on how to use the template below. 
+% Some of these examples are taken from the Metropolis template.
+%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+\documentclass[
+11pt,notheorems,hyperref={pdfauthor=whatever}
+]{beamer}
+
+\input{loadslides.tex} % Loads packages and some defined commands
+
+\title[
+% Text entered here will appear in the bottom middle
+]{Réunion du 22/04/2026}
+
+\subtitle{IFPEN/INRIA}
+
+\author[
+% Text entered here will appear in the bottom left corner
+]{
+    Arthur Timbeau-Périvier, 
+    Adam Rozentalis,
+    Julien Salomon
+}
+
+
+\begin{document}
+
+% Generate title page
+
+\setbeamertemplate{footline}{} 
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}
+    \tableofcontents
+\end{frame}
+
+\section{Objectif}
+
+\begin{frame}{Objectif}
+Développer un modèle de correction de la BEM qui améliore la précision de ses prédictions d'efforts par rapport à celles du modèle Free Wake Vortex (FWV) tout en conservant 
+sa rapidité d'exécution.
+\end{frame}
+
+
+\section{Présentation de l'approche}
+
+\subsection{Corrections locales/Globales}
+\begin{center}
+    Deux premières familles de modèles sont envisagées
+    \begin{itemize}
+    \item Les corrections \textcolor{blue}{locales}
+    \item Les corrections \textcolor{blue}{globales}
+    \end{itemize}
+\end{center}
+
+\begin{frame}{Approche locale}
+    Approche locale : inférences sur les efforts par sections radiale. 
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position radiale $r \in \left[R_{hub}, R\right]$
+            \item Position azimutale $\theta \in \left[0,2\pi\right]$
+            \item Nombre de pale $B \in \mathbb{N^*}$
+            \item Rayon total $R\in \mathbb{R_+}$
+            \item Corde $c\in \mathbb{R_+}$
+            \item Twist $\beta \in \left[0,2\pi\right]$
+            \item Pitch $\theta_{pitch} \in \left[0,2\pi\right]$
+            \item Densité de l'air $\rho \in \mathbb{R_+}$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+            \item Lift $C_L \in \mathcal{C^1}(\left[0,2\pi\right], \mathbb{R})$
+            \item Drag $C_D \in \mathcal{C^1}(\left[0,2\pi\right], \mathbb{R})$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}$
+            \item Force tangentielle $F_T \in \mathbb{R}$
+        \end{itemize}
+    \end{columns}
+
+\end{frame}
+
+\begin{frame}{Approche globale}
+Approche globale : inférences sur les efforts sur toute les sections de la pale en même temps.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position azimutale $\theta \in \left[0,2\pi\right]$
+            \item Nombre de pale $B \in \mathbb{N^*}$
+            \item Rayon total $R\in \mathbb{R_+}$
+            \item Cordes $c\in \mathbb{R_+}^n$
+            \item Twist $\beta \in \left[0,2\pi\right]^n$
+            \item Pitch $\theta_{pitch} \in \left[0,2\pi\right]^n$
+            \item Densité de l'air $\rho \in \mathbb{R_+}$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+            \item Lift $C_L \in \mathcal{C^1}(\left[0,2\pi\right], \mathbb{R}^n)$
+            \item Drag $C_D \in \mathcal{C^1}(\left[0,2\pi\right], \mathbb{R}^n)$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^n$
+            \item Force tangentielle $F_T \in \mathbb{R}^n$
+        \end{itemize}
+    \end{columns}    
+\end{frame}
+
+\begin{frame}{Tri des paramètres}
+On envisage de travailler sur l'éolienne \textit{Mexico}, i.e fixer les paramètres de designn suivant : 
+\begin{itemize}
+    \item Nombre de pale
+    \item Rayon du moyeu
+    \item Rayon total 
+    \item Corde
+    \item Twist
+\end{itemize}
+
+\vspace{0.3cm}
+
+Ce qui laisse comme set de variable d'entraînement : 
+\begin{itemize}
+    \item position radiale
+    \item azimut
+    \item Pitch
+    \item Vitesse de rotation
+    \item Vitesse freestream
+    \item Yaw
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Objectif de long terme}
+    En résumé : 
+    \begin{itemize}
+        \item Approche locale : Pour une section de pale, donne les efforts
+        \item Approche globale : Pour toute une pale, donne la distribution des efforts sur toute la pale
+    \end{itemize}
+    
+    \vspace{0.3cm}
+
+    Question : A terme, lequel souhaiter ? (A priori, l'approche locale semble plus pratique)
+\end{frame}
+
+\subsection{Approche directe/intermédiaire}
+
+\begin{frame}{Approche directe}
+    Approche directe : corriger directement les efforts retournés par la BEM : 
+    
+    \vspace{0.4cm}
+    \begin{center}
+    \begin{tikzpicture}[node distance=1.5cm]
+        \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=1.1cm, align=center]
+            (bem) {Efforts BEM : \\ $\bigl(F_n^{BEM},\, F_t^{BEM}\bigr)$};
+        \node[draw, fill=orange!20, minimum width=2cm, minimum height=1.1cm, align=center, right=1.5cm of bem]
+            (nn)  {NN\\SkyNet};
+        \node[draw, rounded corners, fill=green!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of nn]
+            (skn) {Sorties inférées : \\ $\bigl(F_n^{SKN},\, F_t^{SKN}\bigr)$};
+        \draw[-stealth, line width=2pt] (bem) -- (nn);
+        \draw[-stealth, line width=2pt] (nn)  -- (skn);
+    \end{tikzpicture}
+    \end{center}
+\end{frame}
+
+\begin{frame}{Approche intermédiaire}
+    Approche intermédiaire : considérer une variable en amont des efforts (présente dans BEM et FWV) et inférer dessus. 
+
+        \begin{center}
+    \begin{tikzpicture}[node distance=1.5cm]
+        \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=1.1cm, align=center]
+            (bem) {Sorties BEM : \\ $\bigl(a,\, a', \varphi\bigr)$};
+        \node[draw, rounded corners, fill=orange!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of bem]
+            (var_inter) {Sorties inférées : \\ $\text{SkyNet}(a,a',\varphi) = Y_{SKN}$};
+        \node[draw, rounded corners, fill=green!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of var_inter]
+            (eff_derive) {Calculs des efforts avec la sortie du réseau : \\  $\text{G}(Y_{SKN}) = \bigl(F_n^{SKN}, F_t^{SKN}\bigr)$};
+
+        \draw[-stealth, line width=2pt] (bem) -- (var_inter);
+        \draw[-stealth, line width=2pt] (var_inter)  -- (eff_derive);
+    \end{tikzpicture}
+
+    \vspace{0.3cm}
+    Où $G$ représente les différentes formules permettant de calculer les efforts à partir de la variable inférée.
+
+    \vspace{0.2cm}
+
+    Par exemple, les deux modèles utilisent dans le calcul des efforts la \textbf{vitesse effective} couplé à \textbf{l'angle d'attaque}.
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{BEM :}
+        Au niveau de la section de rayon $r$
+        \begin{itemize}\small
+            \item vitesse effective : $V_{eff} = \sqrt{\left[ U_{\infty}(1-a)^2 + ^\Omega r(1+a')^2\right]}$
+            \item angle d'attaque : $\alpha = \varphi -\left(\beta + \theta_{pitch}\right)$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{FWV :}
+        Au niveau de la section de rayon $r$ 
+        \begin{itemize}\small
+            \item Biot-Savart :  $V_{eff} = \frac{\Gamma(||r_1|| + ||r_2||)(r_1 \times r_2)}{4\pi ||r_1|| \, ||r_2||(||r_1||\,||r_2|| + (r_1 | r_2))}$
+            \item angle d'attaque :  $\alpha = \text{arctan}\bigl(\frac{(u|N)}{(u|T)}\bigr)$
+        \end{itemize}
+    \end{columns}    
+    \end{center}
+\end{frame}
+
+\begin{frame}{Stratégies sans BEM : créer un challenger}
+    \begin{center}
+    En parallèle, des modèles émulant directement FWV (sans utiliser d'autre modèle) sont écrits dans le but de challenger les modèles corrigeant la BEM.\\ 
+    Objectif : \textbf{Montrer qu'un réseau de neurones informés par un modèle physique performe mieux qu'un modèle non informé}.
+    \end{center}
+\end{frame}
+
+\begin{frame}{Ensemble des stratégies possible}
+    \begin{center}
+        L'ensemble des stratégies possibles se résume par la formule suivante : 
+        \[
+        \bigl(\text{local}, \text{global}\bigr) \times \bigl(\text{Avec BEM}, \text{Sans BEM}\bigr) \times \bigl(\text{Variable intermédiaire}, \text{Directe}\bigr)
+        \]
+    \end{center}
+\end{frame}
+
+\section{Création de donnée avec des solver FWV haute fidéflité}
+   
+\begin{frame}
+
+    \begin{center}
+        Pour créer des données d'entraînement, deux solveur HF ont été utilisé: 
+        \begin{itemize}
+            \item \textcolor{blue}{\textbf{Castor}} (C++, \textit{Blondel et al.})
+            \item \textcolor{blue}{\textbf{Sven}} (Python, \textit{Le Guern, Gonçalves Pinto})
+        \end{itemize}        
+    \end{center}
+    
+\end{frame}
+
+\begin{frame}{Castor vs Sven}
+    
+\end{frame}
+
+\begin{frame}{Adapatation de Sven pour créer des données}
+    Le code \texttt{Sven} à été adapté pour nous permettre de créer des données d'entraînement. 
+
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \begin{itemize}\small
+            \item $U_{\infty}$, vitesse freestream
+        \end{itemize}
+
+        \column{0.05\textwidth}
+        
+        \centering 
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (1.5, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \begin{itemize}\small
+            \item $U = \begin{pmatrix}
+                U_{\infty}\cos(\gamma)\\
+                U_{\infty}\sin(\gamma)\\
+                0
+            \end{pmatrix}$
+        \end{itemize}
+    \end{columns}    
+    
+    \vspace{0.2cm}
+
+    Le vecteur $U$ permet de prendre en compte un yaw d'angle $\gamma$ (en radian) dans les simulations.
+\end{frame}
+
+\begin{frame}{Créations des label}
+    A l'instar des données générées par \texttt{Castor}, l'évelution des efforts au cours du temps sont périodiques, donc les labels choisit consistent en 
+    la moyenne temporel sur les 3 derniers tours de la simulation.  
+\end{frame}
+\end{document}

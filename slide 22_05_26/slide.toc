@@ -1,0 +1,5 @@
+\beamer@sectionintoc {1}{Objectif\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 3}{3}{0}{1}
+\beamer@sectionintoc {2}{Présentation de l'approche\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 4}{4}{0}{2}
+\beamer@subsectionintoc {2}{1}{Corrections locales/Globales\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 4}{4}{0}{2}
+\beamer@subsectionintoc {2}{2}{Approche directe/intermédiaire\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 8}{9}{0}{2}
+\beamer@sectionintoc {3}{Création de donnée avec des solver FWV haute fidéflité\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 12}{13}{0}{3}
