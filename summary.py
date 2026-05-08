@@ -12,7 +12,7 @@ from matplotlib.lines import Line2D
 from src.data_loader import format_data
 from src.models import TurbineMLP
 from src.evaluate import reconstruct_predictions
-from src.physics import convert_u_to_v, convert_v_to_f
+from src.physics import convert_v_to_f
 
 def retrain_and_plot(model_name, rank_label, img_dir="images/"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -103,12 +103,3 @@ def convert_v_to_f(V_eff, alpha_deg, r):
     Ft =- q * Ct
     
     return Fn, Ft
-
-
-def convert_u_to_f(a, phi_deg, r):
-    """
-    Pipeline complète.
-    """
-    V_eff, alpha_deg = convert_u_to_v(a, phi_deg, r)
-    Fn, Ft = convert_v_to_f(V_eff, alpha_deg, r)
-    return Fn, Ft

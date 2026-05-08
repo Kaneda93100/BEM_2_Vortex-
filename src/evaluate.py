@@ -8,7 +8,7 @@ import numpy as np
 from scipy.stats import wasserstein_distance
 from .models import TurbineMLP
 from .data_loader import format_data
-from .physics import convert_u_to_v, convert_v_to_f
+from .physics import convert_v_to_f
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
     """Réaligne les prédictions avec r et theta et gère le résidu BEM."""
