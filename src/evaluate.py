@@ -12,15 +12,16 @@ from .physics import convert_u_to_v, convert_v_to_f
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
     """Réaligne les prédictions avec r et theta et gère le résidu BEM."""
+    res_str = str(residuelle)
+    
     if inter == 'f':
         c1, c2 = 'Fn', 'Ft'
-        c1_bem, c2_bem = 'Fn_BEM', 'Ft_BEM'
+        c1_bem = 'Fn_BEM_NoYaw' if res_str == '2' else 'Fn_BEM'
+        c2_bem = 'Ft_BEM_NoYaw' if res_str == '2' else 'Ft_BEM'
     elif inter == 'v':
         c1, c2 = 'V_eff', 'alpha'
-        c1_bem, c2_bem = 'V_eff_BEM', 'alpha_BEM'
-    elif inter == 'u':
-        c1, c2 = 'a', 'phi'
-        c1_bem, c2_bem = 'a_BEM', 'phi_BEM'
+        c1_bem = 'V_eff_BEM_NoYaw' if res_str == '2' else 'V_eff_BEM'
+        c2_bem = 'alpha_BEM_NoYaw' if res_str == '2' else 'alpha_BEM'
         
     records = []
     
@@ -28,7 +29,7 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
         for i in range(len(df_test)):
             row = df_test.iloc[i]
             v1, v2 = preds[i, 0], preds[i, 1]
-            if residuelle == '1':
+            if residuelle in ['1', '2']:
                 v1 += row[c1_bem]
                 v2 += row[c2_bem]
             records.append({'r': row['r'], 'theta': row['theta'], f'{c1}_pred': v1, f'{c2}_pred': v2})
@@ -39,7 +40,7 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
             p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2]
             for j, (_, row) in enumerate(group.iterrows()):
                 v1, v2 = p_v1[j], p_v2[j]
-                if residuelle == '1':
+                if residuelle in ['1', '2']:
                     v1 += row[c1_bem]; v2 += row[c2_bem]
                 records.append({'r': row['r'], 'theta': row['theta'], f'{c1}_pred': v1, f'{c2}_pred': v2})
                 
@@ -49,7 +50,7 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
             p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2]
             for j, (_, row) in enumerate(group.iterrows()):
                 v1, v2 = p_v1[j], p_v2[j]
-                if residuelle == '1':
+                if residuelle in ['1', '2']:
                     v1 += row[c1_bem]; v2 += row[c2_bem]
                 records.append({'r': row['r'], 'theta': row['theta'], f'{c1}_pred': v1, f'{c2}_pred': v2})
                 

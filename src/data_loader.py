@@ -7,24 +7,22 @@ import pickle
 from sklearn.preprocessing import StandardScaler
 
 def load_clean_data(path_forces="data/raw/fichier_forces.csv", 
-                    path_vitesses="data/raw/fichier_vitesses.csv", 
-                    path_induction="data/raw/fichier_induction.csv"):
+                    path_vitesses="data/raw/fichier_vitesses.csv"):
     """
     Lit et fusionne les données, retire Castor, et ajoute l'encodage 
     cyclique de l'azimut (cos_theta, sin_theta).
     """
     df_f = pd.read_csv(path_forces)
     df_v = pd.read_csv(path_vitesses)
-    df_i = pd.read_csv(path_induction)
 
     # Fusion sur les coordonnées spatiales
-    df_merged = df_f.merge(df_v, on=['r', 'theta']).merge(df_i, on=['r', 'theta'])
+    df_merged = df_f.merge(df_v, on=['r', 'theta'])
     
-    # Retrait des données Castor (inutiles pour le ML)
+    # Retrait des données Castor
     cols_to_drop = [col for col in df_merged.columns if 'Castor' in col]
     df_merged = df_merged.drop(columns=cols_to_drop)
 
-    # NOUVEAU : Encodage cyclique de l'azimut pour éviter la discontinuité 359° -> 0°
+    # Encodage cyclique de l'azimut
     theta_rad = np.radians(df_merged['theta'])
     df_merged['cos_theta'] = np.cos(theta_rad)
     df_merged['sin_theta'] = np.sin(theta_rad)
@@ -70,11 +68,11 @@ def format_data(df, entree, residuelle, inter, is_train=True):
     """
     # 1. Sélection des colonnes cibles
     if inter == 'f':
-        cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
+        cols_sven = ['Fn_SVEN', 'Ft_SVEN']
+        cols_bem = ['Fn_BEM_NoYaw', 'Ft_BEM_NoYaw'] if res_str == '2' else ['Fn_BEM', 'Ft_BEM']
     elif inter == 'v':
-        cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
-    elif inter == 'u':
-        cols_sven, cols_bem = ['a_SVEN', 'phi_SVEN'], ['a_BEM', 'phi_BEM']
+        cols_sven = ['V_eff_SVEN', 'alpha_SVEN']
+        cols_bem = ['V_eff_BEM_NoYaw', 'alpha_BEM_NoYaw'] if res_str == '2' else ['V_eff_BEM', 'alpha_BEM']
     else:
         raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
 
@@ -82,7 +80,7 @@ def format_data(df, entree, residuelle, inter, is_train=True):
 
     # 2. Extraction des matrices brutes selon l'approche spatiale
     if entree == 'L':
-        if res_str == '1':
+        if res_str in ['1', '2']:
             Y_np = df[cols_sven].values - df[cols_bem].values
             X_np = df[['r', 'cos_theta', 'sin_theta'] + cols_bem].values
         else:
@@ -99,7 +97,7 @@ def format_data(df, entree, residuelle, inter, is_train=True):
             cos_th = group['cos_theta'].iloc[0]
             sin_th = group['sin_theta'].iloc[0]
             
-            if res_str == '1':
+            if res_str in ['1', '2']:
                 Y_val = y_sven - y_bem
                 X_val = np.concatenate(([cos_th, sin_th], y_bem))
             else:
@@ -119,7 +117,7 @@ def format_data(df, entree, residuelle, inter, is_train=True):
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
             
-            if res_str == '1':
+            if res_str in ['1', '2']:
                 Y_val = y_sven - y_bem
                 X_val = np.concatenate(([r_val], y_bem))
             else:

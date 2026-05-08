@@ -5,8 +5,18 @@ import torch
 import torch.nn as nn
 import pandas as pd
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+
+# --- FIXATION DE LA GRAINE ALÉATOIRE POUR REPRODUCTIBILITÉ PARFAITE ---
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+# ----------------------------------------------------------------------
 
 # Imports internes
 from src.data_loader import format_data
@@ -20,11 +30,13 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
     os.makedirs(img_dir, exist_ok=True)
     
     try:
-        entree, residuelle, inter = model_name.split('_')
-        with open(f"hyperparametres/{model_name}.json", "r") as f:
+        # Nettoyage d'éventuels espaces dans le nom
+        clean_model_name = model_name.strip()
+        entree, residuelle, inter = clean_model_name.split('_')
+        with open(f"hyperparametres/{clean_model_name}.json", "r") as f:
             hparams = json.load(f)
     except Exception as e:
-        print(f" Erreur : {e}")
+        print(f" Erreur lors de la lecture des hyperparamètres de {model_name}: {e}")
         return
 
     df_train = pd.read_csv(f"data/processed/train_{entree}.csv")
@@ -63,7 +75,7 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
         preds_tr = model(X_tr).cpu().numpy()
         preds_te = model(X_test_dev).cpu().numpy()
         
-    with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f:
+    with open(f"scalers/scaler_Y_{clean_model_name}.pkl", 'rb') as f:
         scaler_Y = pickle.load(f)
     preds_tr = scaler_Y.inverse_transform(preds_tr)
     preds_te = scaler_Y.inverse_transform(preds_te)
@@ -72,27 +84,31 @@ def retrain_and_plot(model_name, rank_label, img_dir="images/"):
     df_res_te = reconstruct_predictions(df_test, preds_te, entree, residuelle, inter)
     
     for df in [df_res_tr, df_res_te]:
-        if inter == 'v':
+        if inter == 'u':
+            df['V_eff_pred'], df['alpha_pred'] = convert_u_to_v(df['a_pred'].values, df['phi_pred'].values, df['r'].values)
+            df['Fn_pred'], df['Ft_pred'] = convert_v_to_f(df['V_eff_pred'].values, df['alpha_pred'].values, df['r'].values)
+        elif inter == 'v':
             df['Fn_pred'], df['Ft_pred'] = convert_v_to_f(df['V_eff_pred'].values, df['alpha_pred'].values, df['r'].values)
 
     metrics = {}
     target_cols = ['Fn', 'Ft']
     if inter == 'v': target_cols += ['V_eff', 'alpha']
-
+    if inter == 'u': target_cols += ['a', 'phi']
     for col in target_cols:
         s, p = df_res_te[f'{col}_SVEN'].values, df_res_te[f'{col}_pred'].values
         metrics[f'{col}_abs'] = np.sqrt(np.mean((p - s)**2))
         metrics[f'{col}_rel'] = (metrics[f'{col}_abs'] / np.mean(np.abs(s)) * 100) if np.mean(np.abs(s)) != 0 else 0
 
-    _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te, inter, img_dir, metrics)
+    _draw_plot(clean_model_name, rank_label, history, test_loss, df_res_tr, df_res_te, inter, img_dir, metrics)
 
 def _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te, inter, img_dir, metrics):
-    n_cols = 4 if inter  =='v' else 2
+    n_cols = 4 if inter in ['u', 'v'] else 2
     n_rows = 3
     
     var_map = {
         'v': ('V_eff', '$V_{eff}$ [m/s]', 'alpha', '$\\alpha$ [deg]'),
-        }
+        'u': ('a', 'Induction $a$', 'phi', 'Angle flux $\\phi$ [deg]')
+    }
     
     # 6 Rayons
     rayons = np.sort(df_res_te['r'].unique())
@@ -103,9 +119,7 @@ def _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te,
     sections_th = np.unique([azimuts[np.abs(azimuts - t).argmin()] for t in [0, 120, 240]])
     
     # --- PALETTE DE COULEURS MISE À JOUR ---
-    # Rayons (6) : Palette qualitative standard
     colors_r = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
-    # Azimuts (3) : Rouge, Vert, Bleu (Haut contraste, pas de noir)
     colors_th = ['#e41a1c', '#4daf4a', '#377eb8']
 
     fig = plt.figure(figsize=(5 * n_cols, 15))
@@ -114,7 +128,6 @@ def _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te,
     # 1. Convergence
     ax_h = plt.subplot2grid((n_rows, n_cols), (0, 0), colspan=n_cols)
     ax_h.plot(history['epoch'], history['train_loss'], color='blue', label='Train MSE')
-    # Droite horizontale pour l'erreur de test
     ax_h.axhline(y=test_loss, color='red', linestyle='--', label=f'Test MSE: {test_loss:.4e}')
     ax_h.set_yscale('log'); ax_h.set_title("Convergence", fontsize=14); ax_h.grid(True, alpha=0.3); ax_h.legend()
 
@@ -172,31 +185,58 @@ def _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te,
                      bbox_to_anchor=(0.5, -0.22), ncol=3, title="Azimuts", frameon=False)
 
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
-    plt.savefig(os.path.join(img_dir, f"summary_{rank_label.replace(' ','_')}_{model_name}.png"), dpi=150, bbox_inches='tight')
+    safe_rank_label = rank_label.replace(' ','_').replace('é','e')
+    plt.savefig(os.path.join(img_dir, f"summary_{safe_rank_label}_{model_name}.png"), dpi=150, bbox_inches='tight')
     plt.close()
 
-def generate_summary_table(perf_dir="performance/", N_tab=2, N_fig=1):
+def generate_family_summary(perf_dir="performance/"):
     recap_file = os.path.join(perf_dir, "recap_scores_globaux.csv")
-    if not os.path.exists(recap_file): return
+    if not os.path.exists(recap_file): 
+        print("Fichier de scores introuvable.")
+        return
+        
     df_recap = pd.read_csv(recap_file)
-    n = len(df_recap)
     
-    if n <= 3 * N_tab:
-        idx_list, labels = list(range(n)), [f"Rang {i+1}" for i in range(n)]
-    else:
-        idx_list = list(range(N_tab)) + list(range((n-N_tab)//2, (n-N_tab)//2 + N_tab)) + list(range(n-N_tab, n))
-        labels = [f"TOP {i+1}" for i in range(N_tab)] + [f"MEDIAN {i+1}" for i in range(N_tab)] + [f"PIRE {N_tab-i}" for i in range(N_tab)]
-
-    df_display = df_recap.iloc[idx_list].copy()
-    df_display.insert(0, 'Rang', labels)
+    # Nettoyer les noms de modèles au cas où il y aurait des espaces (ex: " L_1_f")
+    df_recap['Modele_clean'] = df_recap['Modele'].str.strip()
     
-    print("\n CLASSEMENT FINAL")
-    print("="*105)
-    print(df_display.round(2).to_string(index=False))
-    print("="*105)
+    # Trier du meilleur (score le plus bas) au pire (score le plus haut)
+    df_recap = df_recap.sort_values(by="Score_Global_%", ascending=True)
+    
+    familles = ['GR', 'GA', 'L']
+    modeles_a_tracer = []
+    
+    print("\n" + "="*50)
+    print(" SÉLECTION DES MODÈLES EXTRÊMES PAR FAMILLE")
+    print("="*50)
+    
+    for f in familles:
+        # On filtre les modèles dont le nom nettoyé commence par "Famille_"
+        df_fam = df_recap[df_recap['Modele_clean'].str.startswith(f + '_')]
+        
+        if not df_fam.empty:
+            meilleur_modele = df_fam.iloc[0]
+            pire_modele = df_fam.iloc[-1]
+            
+            print(f" Famille {f} :")
+            print(f"  - Meilleur : {meilleur_modele['Modele_clean']} ({meilleur_modele['Score_Global_%']:.2f}%)")
+            print(f"  - Pire     : {pire_modele['Modele_clean']} ({pire_modele['Score_Global_%']:.2f}%)")
+            
+            modeles_a_tracer.append((meilleur_modele['Modele_clean'], f"Meilleur {f}"))
+            
+            # Si la famille ne contient qu'un seul modèle, on ne le trace pas deux fois
+            if meilleur_modele['Modele_clean'] != pire_modele['Modele_clean']:
+                modeles_a_tracer.append((pire_modele['Modele_clean'], f"Pire {f}"))
+        else:
+            print(f" Famille {f} : Aucun modèle trouvé.")
 
-    targets = {0: "TOP 1", n//2: "MEDIAN", n-1: "PIRE 1"}
-    for idx, lbl in targets.items():
-        retrain_and_plot(df_recap.iloc[idx]['Modele'], lbl)
+    print("\n" + "="*50)
+    print(" DÉBUT DES TRACÉS")
+    print("="*50)
+    
+    for mod, lbl in modeles_a_tracer:
+        retrain_and_plot(mod, lbl)
 
-generate_summary_table()
+# Lancement du script
+if __name__ == "__main__":
+    generate_family_summary()

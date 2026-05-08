@@ -23,8 +23,8 @@ def main():
     
     # 2. Les stratégies à explorer
     entrees = ['L', 'GR', 'GA']
-    residuelles = ['0', '1']
-    inters = ['f', 'v', 'u']
+    residuelles = ['0', '1', '2']
+    inters = ['f', 'v']
     
     # 3. Boucles d'expérimentation
     for e in entrees:

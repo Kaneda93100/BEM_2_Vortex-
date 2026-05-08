@@ -73,29 +73,6 @@ def get_geometry():
 # FONCTIONS DE CONVERSIONS PHYSIQUES
 # ==========================================
 
-def convert_u_to_v(a, phi_deg, r):
-    """
-    Convertit u (a, phi) en v (V_eff, alpha).
-    Prend en entrée phi en DEGRÉS (car c'est ce que le réseau prédit).
-    Retourne alpha en DEGRÉS.
-    """
-    geom = get_geometry()
-    beta_rad = geom.get_twist_rad(r)
-    
-    # Conversion en radians pour les calculs géométriques Numpy
-    phi_rad = np.radians(phi_deg)
-    phi_rad = np.where(phi_rad == 0, 1e-6, phi_rad)
-    
-    # Calcul de V_eff (Nécessite phi en radians pour np.sin)
-    V_eff = (U_INFTY * (1 - a)) / np.sin(phi_rad)
-    
-    # Calcul de alpha (en radians, puis on reconvertit en degrés pour le renvoyer)
-    alpha_rad = phi_rad - (beta_rad + PITCH_RAD)
-    alpha_deg = np.degrees(alpha_rad)
-    
-    return V_eff, alpha_deg
-
-
 def convert_v_to_f(V_eff, alpha_deg, r):
     """
     Convertit v (V_eff, alpha) en efforts (Fn, Ft) en [N/m].
@@ -121,9 +98,9 @@ def convert_v_to_f(V_eff, alpha_deg, r):
     Ct = Cl * np.sin(alpha_rad) - Cd * np.cos(alpha_rad)
     
     # Pression dynamique et Forces
-    q = 0.5 * RHO * (V_eff**2) * c
+    q = 0.5 * RHO * (V_eff**2) * abs(c)
     Fn = q * Cn
-    Ft = q * Ct
+    Ft =- q * Ct
     
     return Fn, Ft
 
