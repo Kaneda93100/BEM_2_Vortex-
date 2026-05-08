@@ -12,6 +12,9 @@ slide/*.gz
 slide/*.toc
 slide/*.vrb
 
+# Environnement virtuel
+B2V
+
 # --- Sorties et fichiers générés ---
 scalers/
 images/
