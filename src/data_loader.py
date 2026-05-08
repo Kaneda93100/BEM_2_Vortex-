@@ -67,6 +67,8 @@ def format_data(df, entree, residuelle, inter, is_train=True):
     Gère l'aplatissement pour les méthodes globales et applique 
     une standardisation
     """
+    res_str = str(residuelle)
+
     # 1. Sélection des colonnes cibles
     if inter == 'f':
         cols_sven = ['Fn_SVEN', 'Ft_SVEN']
@@ -76,8 +78,6 @@ def format_data(df, entree, residuelle, inter, is_train=True):
         cols_bem = ['V_eff_BEM_NoYaw', 'alpha_BEM_NoYaw'] if res_str == '2' else ['V_eff_BEM', 'alpha_BEM']
     else:
         raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
-
-    res_str = str(residuelle)
 
     # 2. Extraction des matrices brutes selon l'approche spatiale
     if entree == 'L':
