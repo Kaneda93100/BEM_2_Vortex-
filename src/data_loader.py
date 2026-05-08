@@ -6,6 +6,7 @@ import os
 import pickle
 from sklearn.preprocessing import StandardScaler
 
+
 def load_clean_data(path_forces="data/raw/fichier_forces.csv", 
                     path_vitesses="data/raw/fichier_vitesses.csv"):
     """
@@ -159,3 +160,4 @@ def format_data(df, entree, residuelle, inter, is_train=True):
         Y_scaled = scaler_Y.transform(Y_np)
 
     return torch.tensor(X_scaled, dtype=torch.float32), torch.tensor(Y_scaled, dtype=torch.float32)
+
