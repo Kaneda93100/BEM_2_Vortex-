@@ -15,7 +15,24 @@ seront :
     - Le yaw
     - Le TSR
 
-Castor est mis de côté, on ne concentre que sur les sorties de SVEN
+Castor est mis de côté, on ne concentre que sur les sorties de SVEN.
+
+Liste exhaustive des paramètres :
+    - entree --> Choix de la stratégie de correction
+                    1. 'L'  == Stratégie locale : le modèle considère --en plus du yaw et du TSR-- les rayons et les azimuts
+                    2. 'GR' == Stratégie semi-locale : le modèle prend juste le rayon en plus mais pas l'azimut
+                    3. 'GA' == Stratégie semi-locale : le modèle prend  l'azimut mais pas le rayon
+                    4. 'G'  == Stratégie purement gloable : seul le yaw et le TSR sont considérés
+
+    - res    --> Choisir si il faut optimiser 
+                    1. |FN_BEM-FT_SVEN| (res == 0)
+                    2. FN_SVEN          (res == 1)
+
+    - inter  --> Choisir la variables qui sera optimisé
+                    1. 'f' == Apprentissage direct sur sur les forces de SVEN
+                    2. 'u' == Apprentissage sur (V_eff, aoa)
+                    3. 'v' == Apprentissage sur (a,a',phi)
+
 """
 
 
@@ -48,24 +65,31 @@ def load_clean_data(path_to_bem, path_to_sven) :
         if suf == '.xlsx' :
             df_bem  = pd.read_excel(path_to_bem)
             df_sven = pd.read_excel(path_to_sven)
-        if suf == '' :
+        elif suf == '' :
             raise ImportError(f'Le chemin doit pointer directement sur le fichier à importer. Réessayez en pointant directement vers ce fichier.')
         else : 
             raise ImportError(f'Le fichier pointé doit être un .xlsx')
-        
-    df_merged = df_bem.merge(df_sven, on = ['r', 'theta'])
+    
+    ## Drop les colonnes 'twist' et 'chord' dans les données sven
+    df_sven.drop(inplace = True, columns = ['chord', 'twist', 'err_period_n', 'err_period_t'])
+    
+    ## Formater toutes les données en float64
+    df_sven['theta'] = df_sven['theta'].astype(np.float64)
+    df_bem['r'] = df_bem['r'].round(6); df_sven['r'] = df_sven['r'].round(6)
+
+    df_merged = df_bem.merge(df_sven, on = ['r','theta', 'yaw', 'TSR'], suffixes = ('_BEM', '_SVEN' ), how = 'left')
 
 
-    # Encodage trigonométrique de l'azimuth (faudra en discuter)
+    # Encodage trigonométrique de l'azimuth
     radians = np.radians(df_merged['theta'])
     df_merged['cos_theta'] = np.cos(radians)
     df_merged['sin_theta'] = np.sin(radians) 
 
-    df_merged = df_merged.drop(columns = ['r', 'theta'])
+    #df_merged = df_merged.drop(columns = ['r', 'theta']) (ligne à supprimer)
 
     return df_merged
 
-def get_splits(df, entree, test_size = 0.2, save_dir = None) :
+def get_splits(df, entree, seed = 42, test_size = 0.2, save_dir = None) :
     """
     C'est plus simple dans ce cas : il n'y a qu'une stratégie !
 
@@ -80,33 +104,30 @@ def get_splits(df, entree, test_size = 0.2, save_dir = None) :
         - Ft
         - Variables intermédiaires
     """
-
-    if 'yaw' not in list(df.keys()) or 'TSR' not in list(df.keys()):
-        raise KeyError("Absence de yaw ou de TSR dans les données.")
     
     if entree == 'L':
         # Split point par point classique
-        train_df, test_df = train_test_split(df, test_size=0.30, random_state=42)
+        train_full, val_full = train_test_split(df, test_size = test_size, random_state = seed)
         
     elif entree == 'GR':
         # Split sur les Azimuts (on garde des profils de pales entiers)
         thetas_uniques = df['theta'].unique()
-        train_th, test_th = train_test_split(thetas_uniques, test_size=0.30, random_state=42)
-        train_df = df[df['theta'].isin(train_th)].copy()
-        test_df = df[df['theta'].isin(test_th)].copy()
+        train_th, test_th = train_test_split(thetas_uniques, test_size = test_size, random_state = 42)
+        train_full = df[df['theta'].isin(train_th)].copy()
+        val_full = df[df['theta'].isin(test_th)].copy()
         
     elif entree == 'GA':
         # Split sur les Rayons (on garde des anneaux de rotor entiers)
         rayons_uniques = df['r'].unique()
-        train_r, test_r = train_test_split(rayons_uniques, test_size=0.30, random_state=42)
-        train_df = df[df['r'].isin(train_r)].copy()
-        test_df = df[df['r'].isin(test_r)].copy()
+        train_r, test_r = train_test_split(rayons_uniques, test_size = test_size, random_state = seed)
+        train_full = df[df['r'].isin(train_r)].copy()
+        val_full = df[df['r'].isin(test_r)].copy()
     
     elif entree == 'G' :
-        full_data = pd.concat([df['yaw'], df['TSR']], axis=1)
-        train_df, val_df = train_test_split(full_data, test_size = test_size, random_state = 42)
-        train_full = df[df['yaw'].isin(train_df)].copy()
-        val_full = df[df['yaw'].isin(val_df)].copy()
+        # On drop les attributs r et theta et on split sur le yaw et le tsr
+        df = df.drop(columns = ['r', 'theta'])
+        train_full, val_full = train_test_split(df, test_size = test_size, random_state = seed)
+
     else :
         raise ValueError(f'\n{entree} est invalide.\n')
 
@@ -120,7 +141,7 @@ def get_splits(df, entree, test_size = 0.2, save_dir = None) :
     return train_full, val_full
 
 
-def format_data(df, entree, res, inter, is_train = True):
+def format_data(df, entree, res, inter, is_train):
     """
     On conserve l'idée des plusieurs stratégies (inter,direct) x (bem,no_bem)
     """
@@ -138,10 +159,10 @@ def format_data(df, entree, res, inter, is_train = True):
     if entree == 'L':
         if res in [1, 2]:
             Y_np = df[cols_sven].values - df[cols_bem].values
-            X_np = df[['r', 'cos_theta', 'sin_theta'] + cols_bem].values
+            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw', 'TSR'] + cols_bem].values
         else:
             Y_np = df[cols_sven].values
-            X_np = df[['r', 'cos_theta', 'sin_theta']].values
+            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw', 'TSR']].values
 
     elif entree == 'GR':
         grouped = df.groupby('theta')
@@ -150,15 +171,17 @@ def format_data(df, entree, res, inter, is_train = True):
             group = group.sort_values('r')
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
-            cos_th = group['cos_theta'].iloc[0]
-            sin_th = group['sin_theta'].iloc[0]
+            cos_th = group['cos_theta']
+            sin_th = group['sin_theta']
+            yaw = group['yaw']
+            tsr = group['TSR']
             
             if res in [1, 2]:
                 Y_val = y_sven - y_bem
-                X_val = np.concatenate(([cos_th, sin_th], y_bem))
+                X_val = np.concatenate(([cos_th, sin_th, yaw, tsr], y_bem))
             else:
                 Y_val = y_sven
-                X_val = np.array([cos_th, sin_th])
+                X_val = np.array([cos_th, sin_th, yaw, tsr])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
@@ -172,22 +195,26 @@ def format_data(df, entree, res, inter, is_train = True):
             group = group.sort_values('theta')
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
-            
-            if res_str in ['1', '2']:
+            yaw = group['yaw']
+            tsr = group['TSR']
+
+            if res in [1, 2]:
                 Y_val = y_sven - y_bem
-                X_val = np.concatenate(([r_val], y_bem))
+                X_val = np.concatenate((r_val*np.ones_like(yaw.to_numpy())), yaw.to_numpy(), tsr.to_numpy(), y_bem)
             else:
                 Y_val = y_sven
-                X_val = np.array([r_val])
+                X_val = np.array([r_val*np.ones_like(yaw.to_numpy()), yaw.to_numpy(), tsr.to_numpy()])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
-    if res == 1 :
-        Y_np = df[cols_sven].values - df[cols_bem].values
-        X_np = df[['yaw', 'TSR']].values
-    else :
-        Y_np = df[cols_sven].values
-        X_np = df[['yaw', 'TSR']]
+
+    elif entree == 'G' : 
+        if res in [1, 2]:
+            Y_np = df[cols_sven].values - df[cols_bem].values
+            X_np = df[['yaw', 'TSR']].values.astype(np.float32)
+        else :
+            Y_np = df[cols_sven].values
+            X_np = df[['yaw', 'TSR']].values.astype(np.float32)
 
     # 3. Normalisation
 
@@ -220,34 +247,36 @@ def format_data(df, entree, res, inter, is_train = True):
 
     return torch.tensor(X_scaled, dtype=torch.float32), torch.tensor(Y_scaled, dtype=torch.float32)
 
-def MB_build(train_full, val_full, batch_size, res:int, inter:str, is_train = True, seed = 42) : 
+def MB_build(df, batch_size, entree:str, res:int, inter:str, test_size = 0.2, is_train = True, seed = 42, save_dir = None) : 
     """
     Création des mini-batchs. Appelle la fonction format_data et créer les batchs.
     Ajoute une dimension aux tenseurs pour qu'ils puissent rentrer dans le NN et envoie
     sur GPU si disponible sur la machine.
     """
     
+    ## 1. Régler le device (CPU, GPU) selon le hardware de l'utilisateur et récupérer les bon splits
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    train_full, val_full = get_splits(df, entree, seed, test_size, save_dir)
 
-    ## 1. Construire train_dataloader
-    feat_train, label_train = format_data(train_full, res, inter, is_train)
+    ## 2. Construire train_dataloader
+    feat_train, label_train = format_data(train_full, entree = entree, res = res, inter = inter, is_train = is_train)
     feat_train = feat_train.unsqueeze(1).to(device); label_train = label_train.unsqueeze(1).to(device)
     train_dataloader = DataLoader(TensorDataset(feat_train, label_train),
-                                  batch_size = batch_size, pin_memory = torch.cuda.is_available(),
-                                  shuffle = True, generator = seed)
+                                  batch_size = batch_size,
+                                  shuffle = True)
     k = 0
     for t in train_dataloader : 
         k+=1
     print("Nombre d'éléments dans le train_dataloader : ", k)
 
-    ## 2. Construire val_dataloader
-    feat_val, label_val = format_data(val_full, res, inter, is_train)
+    ## 3. Construire val_dataloader
+    feat_val, label_val = format_data(val_full, entree = entree, res = res, inter = inter, is_train = is_train)
     feat_val = feat_val.unsqueeze(1).to(device); label_val = label_val.unsqueeze(1).to(device)
     val_dataloader = DataLoader(TensorDataset(feat_val, label_val),
-                                  batch_size = batch_size, pin_memory = torch.cuda.is_available(),
-                                  shuffle = True, generator = seed)
+                                  batch_size = batch_size,
+                                  shuffle = True)
     k = 0
-    for t in train_dataloader : 
+    for t in val_dataloader : 
         k+=1
     print("Nombre d'éléments dans le train_dataloader : ", k)
 
