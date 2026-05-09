@@ -100,6 +100,6 @@ def convert_v_to_f(V_eff, alpha_deg, r):
     # Pression dynamique et Forces
     q = 0.5 * RHO * (V_eff**2) * abs(c)
     Fn = q * Cn
-    Ft =- q * Ct
+    Ft =- q * Ct #signe moins pour retrouver la même convention
     
     return Fn, Ft

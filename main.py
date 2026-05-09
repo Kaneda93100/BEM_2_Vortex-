@@ -1,7 +1,7 @@
 import time
 from src.data_loader import load_clean_data, get_splits
 from src.optimize import optimize
-from src.evaluate import evaluator
+from src.evaluate import evaluator,evaluate_baselines
 
 
 def format_duration(seconds):
@@ -20,7 +20,9 @@ def main():
     # 1. Chargement global une seule fois en mémoire
     print("Chargement des données...")
     df_full = load_clean_data()
-    
+   
+    df_full = load_clean_data()
+    evaluate_baselines(df_full)
     # 2. Les stratégies à explorer
     entrees = ['L', 'GR', 'GA']
     residuelles = ['0', '1', '2']

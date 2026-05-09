@@ -5,7 +5,7 @@ from src.physics import convert_v_to_f
 
 def main():
     print("Chargement des données brutes (Forces et Vitesses)...")
-    # La fonction load_clean_data ne prend plus le fichier induction
+
     df = load_clean_data(
         path_forces="data/raw/fichier_forces.csv", 
         path_vitesses="data/raw/fichier_vitesses.csv"
@@ -13,7 +13,6 @@ def main():
     
     print(f"Nombre de points à vérifier : {len(df)}\n")
 
-    # Mise à jour des sources : ajout de BEM_NoYaw
     sources = {
         'BEM': '', 
         'BEM_NoYaw': '_NoYaw', 
@@ -23,7 +22,7 @@ def main():
     for source_label, suffix in sources.items():
         print(f"=== VÉRIFICATION DES DONNÉES {source_label.upper()} ===")
         
-        # Mapping des colonnes selon les nouvelles entêtes du CSV
+    
         # Format : V_eff_BEM, V_eff_BEM_NoYaw, V_eff_SVEN
         col_v = f'V_eff_{source_label}' if 'NoYaw' not in source_label else f'V_eff_BEM{suffix}'
         col_alpha = f'alpha_{source_label}' if 'NoYaw' not in source_label else f'alpha_BEM{suffix}'
@@ -31,7 +30,7 @@ def main():
         col_ft = f'Ft_{source_label}' if 'NoYaw' not in source_label else f'Ft_BEM{suffix}'
 
         # ---------------------------------------------------------
-        # Étape unique : Test de convert_v_to_f (V_eff, alpha -> Fn, Ft)
+        # est de convert_v_to_f (V_eff, alpha -> Fn, Ft)
         # ---------------------------------------------------------
         # On utilise les vitesses et angles d'attaque du CSV pour recalculer les forces
         calc_fn, calc_ft = convert_v_to_f(

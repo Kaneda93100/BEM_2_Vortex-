@@ -7,8 +7,9 @@ import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
 from .models import TurbineMLP
-from .data_loader import format_data
+from .data_loader import format_data, get_splits
 from .physics import convert_v_to_f
+
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
     """Réaligne les prédictions avec r et theta et gère le résidu BEM."""
@@ -165,3 +166,69 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     df_recap.to_csv(recap_path, index=False)
     
     print(f" Terminé ! Score: {recap_data['Score_Global_%']:.2f}%")
+
+def evaluate_baselines(df_full):
+    """
+    Calcule les métriques de base pour chaque stratégie spatiale (L, GR, GA)
+    afin de comparer les modèles physiques sur les mêmes jeux de test que le ML.
+    """
+    print("--- Évaluation des Baselines par Stratégie ---")
+    
+    strategies = ['L', 'GR', 'GA']
+    baselines = {
+        'BEM': ('Fn_BEM', 'Ft_BEM'),
+        'BEM_NoYaw': ('Fn_BEM_NoYaw', 'Ft_BEM_NoYaw')
+    }
+
+    recap_path = "performance/recap_scores_globaux.csv"
+    os.makedirs("performance", exist_ok=True)
+    
+    if os.path.exists(recap_path):
+        df_recap = pd.read_csv(recap_path)
+    else:
+        df_recap = pd.DataFrame()
+
+    new_rows = []
+
+    for e in strategies:
+        # On récupère le jeu de test spécifique à la stratégie spatiale
+        _, df_test = get_splits(df_full, entree=e)
+        
+        Fn_s = df_test['Fn_SVEN'].values
+        Ft_s = df_test['Ft_SVEN'].values
+        mean_fn_s = np.mean(np.abs(Fn_s))
+        mean_ft_s = np.mean(np.abs(Ft_s))
+
+        for b_name, (col_fn, col_ft) in baselines.items():
+            full_name = f"Baseline_{b_name}_{e}"
+            
+            Fn_p = df_test[col_fn].values
+            Ft_p = df_test[col_ft].values
+            
+            rmse_fn = np.sqrt(np.mean((Fn_p - Fn_s)**2))
+            rmse_ft = np.sqrt(np.mean((Ft_p - Ft_s)**2))
+            rel_fn = (rmse_fn / mean_fn_s) * 100 if mean_fn_s != 0 else 0
+            rel_ft = (rmse_ft / mean_ft_s) * 100 if mean_ft_s != 0 else 0
+            wass_fn = wasserstein_distance(Fn_s, Fn_p)
+            wass_ft = wasserstein_distance(Ft_s, Ft_p)
+
+            recap_data = {
+                "Modele": full_name,
+                "Epochs_Conv": 0,
+                "Score_Global_%": rel_fn + rel_ft,
+                "RMSE_Fn_Rel_%": rel_fn,
+                "RMSE_Ft_Rel_%": rel_ft,
+                "Wasserstein_Fn": wass_fn,
+                "Wasserstein_Ft": wass_ft
+            }
+            
+            # Nettoyage si la ligne existe déjà
+            if not df_recap.empty and "Modele" in df_recap.columns:
+                df_recap = df_recap[df_recap["Modele"] != full_name]
+            
+            new_rows.append(recap_data)
+
+    df_recap = pd.concat([df_recap, pd.DataFrame(new_rows)], ignore_index=True)
+    df_recap = df_recap.sort_values(by="Score_Global_%", ascending=True).reset_index(drop=True)
+    df_recap.to_csv(recap_path, index=False)
+    print("   >> Baselines enregistrées avec succès.")    
