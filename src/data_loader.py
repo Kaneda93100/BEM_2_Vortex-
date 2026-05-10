@@ -189,7 +189,7 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
             
             if res_str == '1':
                 Y_val = y_sven - y_bem
-                X_val = np.array([y_val]) # Entrée = juste le Yaw
+                X_val = np.concatenate(([y_val], y_bem)) 
             else:
                 Y_val = y_sven
                 X_val = np.array([y_val])
