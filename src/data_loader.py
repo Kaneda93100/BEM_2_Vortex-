@@ -31,61 +31,26 @@ Liste exhaustive des paramètres :
     - inter  --> Choisir la variables qui sera optimisé
                     1. 'f' == Apprentissage direct sur sur les forces de SVEN
                     2. 'u' == Apprentissage sur (V_eff, aoa)
-                    3. 'v' == Apprentissage sur (a,a',phi)
+
 
 """
 
 
-def load_clean_data(path_to_bem, path_to_sven) :
+def load_clean_data(path_forces="data/raw/fichier_forces.csv", path_vitesses="data/raw/fichier_vitesses.csv"):
     """
-    Reprendre le code d'import des données pour la stratégie globale --> les grilles
-    radiales et azimutales sont fixés
-     
-    On impose les conventions suivantes : 
-        - les données doivent être stockées dans des .xlslx
-        - Une colonne correspond à un attribut
-
-    Retourne un data frame pandas dans lequel toutes les données sont stockées, à savoir :
-        - r
-        - theta
-        - (cos(theta), sin(theta))
-        - yaw
-        - TSR
-        - v_eff
-        - alpha
-        - a
-        - phi
-        - Fn
-        - Ft
+    Charge les fichiers CSV de forces et de vitesses, les fusionne sur 
+    les coordonnées communes, et ajoute l'encodage cyclique.
     """
+    df_f = pd.read_csv(path_forces)
+    df_v = pd.read_csv(path_vitesses)
 
-    sufs = [path_to_bem.suffix, path_to_sven.suffix]
+    # Fusion sur les colonnes communes
+    df_merged = df_f.merge(df_v, on=['yaw', 'r', 'theta'])
 
-    for suf in sufs :
-        if suf == '.xlsx' :
-            df_bem  = pd.read_excel(path_to_bem)
-            df_sven = pd.read_excel(path_to_sven)
-        elif suf == '' :
-            raise ImportError(f'Le chemin doit pointer directement sur le fichier à importer. Réessayez en pointant directement vers ce fichier.')
-        else : 
-            raise ImportError(f'Le fichier pointé doit être un .xlsx')
-    
-    ## Drop les colonnes 'twist' et 'chord' dans les données sven
-    df_sven.drop(inplace = True, columns = ['chord', 'twist', 'err_period_n', 'err_period_t'])
-    
-    ## Formater toutes les données en float64
-    df_sven['theta'] = df_sven['theta'].astype(np.float64)
-    df_bem['r'] = df_bem['r'].round(6); df_sven['r'] = df_sven['r'].round(6)
-
-    df_merged = df_bem.merge(df_sven, on = ['r','theta', 'yaw', 'TSR'], suffixes = ('_BEM', '_SVEN' ), how = 'left')
-
-
-    # Encodage trigonométrique de l'azimuth
+    # Encodage trigonométrique de l'azimut
     radians = np.radians(df_merged['theta'])
     df_merged['cos_theta'] = np.cos(radians)
     df_merged['sin_theta'] = np.sin(radians) 
-
-    #df_merged = df_merged.drop(columns = ['r', 'theta']) (ligne à supprimer)
 
     return df_merged
 
@@ -124,9 +89,11 @@ def get_splits(df, entree, seed = 42, test_size = 0.2, save_dir = None) :
         val_full = df[df['r'].isin(test_r)].copy()
     
     elif entree == 'G' :
-        # On drop les attributs r et theta et on split sur le yaw et le tsr
-        df = df.drop(columns = ['r', 'theta'])
-        train_full, val_full = train_test_split(df, test_size = test_size, random_state = seed)
+    # On split sur les Yaws 
+        yaws_uniques = df['yaw'].unique()
+        train_yaw, test_yaw = train_test_split(yaws_uniques, test_size=test_size, random_state=seed)
+        train_full = df[df['yaw'].isin(train_yaw)].copy()
+        val_full = df[df['yaw'].isin(test_yaw)].copy()
 
     else :
         raise ValueError(f'\n{entree} est invalide.\n')
@@ -145,43 +112,45 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
     """
     On conserve l'idée des plusieurs stratégies (inter,direct) x (bem,no_bem)
     """
+    res_str = str(res)
+
     # 1. Sélection des variables intermédiaires
     if inter == 'f':
         cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
     elif inter == 'v':
         cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
-    elif inter == 'u':
-        cols_sven, cols_bem = ['a_SVEN', 'phi_SVEN'], ['a_BEM', 'phi_BEM']
     else:
         raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
 
-    # 2. Sélection des données (approche résiduelle ou directe)
+    # 2. Sélection des données selon la stratégie
     if entree == 'L':
-        if res in [1, 2]:
+        if res_str == '1': # Stratégie résiduelle
             Y_np = df[cols_sven].values - df[cols_bem].values
-            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw', 'TSR'] + cols_bem].values
-        else:
+            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+        else: # Stratégie directe
             Y_np = df[cols_sven].values
-            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw', 'TSR']].values
+            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw']].values
 
     elif entree == 'GR':
-        grouped = df.groupby('theta')
+        # On groupe par angle ET par condition de vent
+        grouped = df.groupby(['theta', 'yaw'])
         X_list, Y_list = [], []
-        for th, group in grouped:
+        for (th, y_val), group in grouped:
             group = group.sort_values('r')
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
-            cos_th = group['cos_theta']
-            sin_th = group['sin_theta']
-            yaw = group['yaw']
-            tsr = group['TSR']
             
-            if res in [1, 2]:
+            # Extraction d'un seul scalaire par groupe
+            c_th = group['cos_theta'].iloc[0]
+            s_th = group['sin_theta'].iloc[0]
+            
+            if res_str == '1':
                 Y_val = y_sven - y_bem
-                X_val = np.concatenate(([cos_th, sin_th, yaw, tsr], y_bem))
+                # Tableau 1D des entrées + données BEM
+                X_val = np.concatenate(([c_th, s_th, y_val], y_bem))
             else:
                 Y_val = y_sven
-                X_val = np.array([cos_th, sin_th, yaw, tsr])
+                X_val = np.array([c_th, s_th, y_val])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
@@ -189,35 +158,48 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
         Y_np = np.array(Y_list)
 
     elif entree == 'GA':
-        grouped = df.groupby('r')
+        # On groupe par rayon ET par condition de vent
+        grouped = df.groupby(['r', 'yaw'])
         X_list, Y_list = [], []
-        for r_val, group in grouped:
+        for (r_val, y_val), group in grouped:
             group = group.sort_values('theta')
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
-            yaw = group['yaw']
-            tsr = group['TSR']
 
-            if res in [1, 2]:
+            if res_str == '1':
                 Y_val = y_sven - y_bem
-                X_val = np.concatenate((r_val*np.ones_like(yaw.to_numpy())), yaw.to_numpy(), tsr.to_numpy(), y_bem)
+                X_val = np.concatenate(([r_val, y_val], y_bem))
             else:
                 Y_val = y_sven
-                X_val = np.array([r_val*np.ones_like(yaw.to_numpy()), yaw.to_numpy(), tsr.to_numpy()])
+                X_val = np.array([r_val, y_val])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
+        X_np = np.array(X_list)
+        Y_np = np.array(Y_list)
 
-    elif entree == 'G' : 
-        if res in [1, 2]:
-            Y_np = df[cols_sven].values - df[cols_bem].values
-            X_np = df[['yaw', 'TSR']].values.astype(np.float32)
-        else :
-            Y_np = df[cols_sven].values
-            X_np = df[['yaw', 'TSR']].values.astype(np.float32)
+    elif entree == 'G': 
+        grouped = df.groupby('yaw')
+        X_list, Y_list = [], []
+        for y_val, group in grouped:
+            # Tri strict pour que le vecteur soit toujours dans le même ordre (theta puis r)
+            group = group.sort_values(['theta', 'r'])
+            y_sven = group[cols_sven].values.flatten()
+            y_bem = group[cols_bem].values.flatten()
+            
+            if res_str == '1':
+                Y_val = y_sven - y_bem
+                X_val = np.array([y_val]) # Entrée = juste le Yaw
+            else:
+                Y_val = y_sven
+                X_val = np.array([y_val])
+                
+            X_list.append(X_val)
+            Y_list.append(Y_val)
+        X_np = np.array(X_list)
+        Y_np = np.array(Y_list)
 
     # 3. Normalisation
-
     model_name = f"global_{res}_{inter}"
     os.makedirs("scalers", exist_ok=True)
     path_x = f"scalers/scaler_X_{model_name}.pkl"
@@ -247,6 +229,7 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
 
     return torch.tensor(X_scaled, dtype=torch.float32, device = device), torch.tensor(Y_scaled, dtype=torch.float32, device = device)
 
+# jolie fonction mais vaut mieux utiliser DataLoader directement dans les autres fichiers à chaque fois que t'en as besoin. 
 def MB_build(df, batch_size, entree:str, res:int, inter:str, test_size = 0.2, is_train = True, seed = 42, save_dir = None, device = 'cpu') : 
     """
     Création des mini-batchs. Appelle la fonction format_data et créer les batchs.

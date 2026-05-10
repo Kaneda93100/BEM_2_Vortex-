@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import pandas as pd
 import numpy as np
+from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import wasserstein_distance
 from .models import TurbineMLP
 from .data_loader import format_data, get_splits
@@ -12,51 +13,68 @@ from .physics import convert_v_to_f
 
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
-    """Réaligne les prédictions avec r et theta et gère le résidu BEM."""
+    """Réaligne les prédictions avec r, theta et yaw et gère le résidu BEM."""
     res_str = str(residuelle)
     
+    # 1.stratégie f vs v
     if inter == 'f':
         c1, c2 = 'Fn', 'Ft'
-        c1_bem = 'Fn_BEM_NoYaw' if res_str == '2' else 'Fn_BEM'
-        c2_bem = 'Ft_BEM_NoYaw' if res_str == '2' else 'Ft_BEM'
+        c1_bem, c2_bem = 'Fn_BEM', 'Ft_BEM'
     elif inter == 'v':
         c1, c2 = 'V_eff', 'alpha'
-        c1_bem = 'V_eff_BEM_NoYaw' if res_str == '2' else 'V_eff_BEM'
-        c2_bem = 'alpha_BEM_NoYaw' if res_str == '2' else 'alpha_BEM'
+        c1_bem, c2_bem = 'V_eff_BEM', 'alpha_BEM'
         
     records = []
     
+    # 2. Reconstitution des prédictions
     if entree == 'L':
         for i in range(len(df_test)):
             row = df_test.iloc[i]
             v1, v2 = preds[i, 0], preds[i, 1]
-            if residuelle in ['1', '2']:
+            if res_str == '1': 
                 v1 += row[c1_bem]
                 v2 += row[c2_bem]
-            records.append({'r': row['r'], 'theta': row['theta'], f'{c1}_pred': v1, f'{c2}_pred': v2})
+
+            records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
             
     elif entree == 'GR':
-        for i, (th, group) in enumerate(df_test.groupby('theta')):
+        # Groupement par theta ET yaw
+        for i, (name, group) in enumerate(df_test.groupby(['theta', 'yaw'])):
             group = group.sort_values('r')
             p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2]
             for j, (_, row) in enumerate(group.iterrows()):
                 v1, v2 = p_v1[j], p_v2[j]
-                if residuelle in ['1', '2']:
+                if res_str == '1': 
                     v1 += row[c1_bem]; v2 += row[c2_bem]
-                records.append({'r': row['r'], 'theta': row['theta'], f'{c1}_pred': v1, f'{c2}_pred': v2})
+                records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
                 
     elif entree == 'GA':
-        for i, (r_val, group) in enumerate(df_test.groupby('r')):
+        # Groupement par r ET yaw
+        for i, (name, group) in enumerate(df_test.groupby(['r', 'yaw'])):
             group = group.sort_values('theta')
             p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2]
             for j, (_, row) in enumerate(group.iterrows()):
                 v1, v2 = p_v1[j], p_v2[j]
-                if residuelle in ['1', '2']:
+                if res_str == '1': 
                     v1 += row[c1_bem]; v2 += row[c2_bem]
-                records.append({'r': row['r'], 'theta': row['theta'], f'{c1}_pred': v1, f'{c2}_pred': v2})
+                records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
+                
+    elif entree == 'G':
+        # Groupement par yaw uniquement
+        for i, (y_val, group) in enumerate(df_test.groupby('yaw')):
+            group = group.sort_values(['theta', 'r'])
+            # preds[i] est le vecteur de taille 2592
+            p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2] 
+            for j, (_, row) in enumerate(group.iterrows()):
+                v1, v2 = p_v1[j], p_v2[j]
+                if res_str == '1':
+                    v1 += row[c1_bem]; v2 += row[c2_bem]
+                records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
                 
     df_preds = pd.DataFrame(records)
-    return pd.merge(df_test, df_preds, on=['r', 'theta'])
+    
+
+    return pd.merge(df_test, df_preds, on=['r', 'theta', 'yaw'])
 
 def evaluator(df_train, df_test, entree, residuelle, inter):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -81,14 +99,24 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
     criterion = nn.MSELoss()
     
+    if entree == 'G':
+        b_size = len(X_full_train_dev)
+    elif entree in ['GR', 'GA']:
+        b_size = 32
+    else:
+        b_size = 128
+        
+    train_loader = DataLoader(TensorDataset(X_full_train_dev, Y_full_train_dev), batch_size=b_size, shuffle=True)
+
     # 4. Entraînement Fixe (1000 epochs)
     epochs = 1000
     for epoch in range(epochs):
         model.train()
-        optimizer.zero_grad()
-        loss = criterion(model(X_full_train_dev), Y_full_train_dev)
-        loss.backward()
-        optimizer.step()
+        for batch_x, batch_y in train_loader:
+            optimizer.zero_grad()
+            loss = criterion(model(batch_x), batch_y)
+            loss.backward()
+            optimizer.step()
     
     # 5. Prédictions & Dénormalisation
     model.eval()
@@ -177,7 +205,6 @@ def evaluate_baselines(df_full):
     strategies = ['L', 'GR', 'GA']
     baselines = {
         'BEM': ('Fn_BEM', 'Ft_BEM'),
-        'BEM_NoYaw': ('Fn_BEM_NoYaw', 'Ft_BEM_NoYaw')
     }
 
     recap_path = "performance/recap_scores_globaux.csv"

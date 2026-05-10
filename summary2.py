@@ -8,6 +8,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from torch.utils.data import DataLoader, TensorDataset
 
 # --- CONFIGURATION ---
 SEED = 42
@@ -52,14 +53,35 @@ def retrain_and_plot(model_name, rank_label, ml_score, baseline_scores, img_dir=
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
     criterion = nn.MSELoss()
     
+# --- LOGIQUE DE BATCH SIZE DYNAMIQUE ---
+    if entree == 'G':
+        b_size = len(X_tr)
+    elif entree in ['GR', 'GA']:
+        b_size = 32
+    else:
+        b_size = 128
+        
+    train_loader = DataLoader(TensorDataset(X_tr, Y_tr), batch_size=b_size, shuffle=True)
+    # -------------------------------------------------
+    
     history = {'epoch': [], 'train_loss': []}
+    
+    # Entraînement avec Mini-Batchs
     for epoch in range(1000):
         model.train()
-        optimizer.zero_grad()
-        loss = criterion(model(X_tr), Y_tr)
-        loss.backward()
-        optimizer.step()
-        history['epoch'].append(epoch); history['train_loss'].append(loss.item())
+        epoch_loss = 0.0 # On cumule la loss de l'époque
+        
+        for batch_x, batch_y in train_loader:
+            optimizer.zero_grad()
+            loss = criterion(model(batch_x), batch_y)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+            
+        # On calcule la moyenne de la loss sur l'époque entière
+        avg_loss = epoch_loss / len(train_loader)
+        history['epoch'].append(epoch)
+        history['train_loss'].append(avg_loss)
             
     model.eval()
     with torch.no_grad():
@@ -117,8 +139,7 @@ def _draw_plot(model_name, rank_label, history, test_loss, df_res_tr, df_res_te,
     fig.text(0.5, 0.955, f"SCORE ML GLOBAL : {ml_score:.2f}%", ha='center', fontsize=18, color='#28a745', fontweight='bold')
     
     b_info = "Baselines Physiques : "
-    if baseline_scores['BEM']: b_info += f"BEM = {baseline_scores['BEM']:.1f}% | "
-    if baseline_scores['BEM_NoYaw']: b_info += f"BEM_NoYaw = {baseline_scores['BEM_NoYaw']:.1f}%"
+    if baseline_scores.get('BEM'): b_info += f"BEM = {baseline_scores['BEM']:.1f}%"
     fig.text(0.5, 0.935, b_info, ha='center', fontsize=11, color='gray', style='italic')
     
     # 1. Convergence
@@ -189,12 +210,10 @@ def generate_family_summary(perf_dir="performance/"):
     df_recap['Modele_clean'] = df_recap['Modele'].str.strip()
     df_recap = df_recap.sort_values(by="Score_Global_%", ascending=True)
     
-    for f in ['GR', 'GA', 'L']:
+    for f in ['GR', 'GA', 'L', 'G']: 
         b_bem = df_recap[df_recap['Modele_clean'] == f'Baseline_BEM_{f}']
-        b_noyaw = df_recap[df_recap['Modele_clean'] == f'Baseline_BEM_NoYaw_{f}']
         scores_b = {
-            'BEM': b_bem['Score_Global_%'].values[0] if not b_bem.empty else None,
-            'BEM_NoYaw': b_noyaw['Score_Global_%'].values[0] if not b_noyaw.empty else None
+            'BEM': b_bem['Score_Global_%'].values[0] if not b_bem.empty else None
         }
         
         df_fam = df_recap[df_recap['Modele_clean'].str.startswith(f + '_') & ~df_recap['Modele_clean'].str.startswith('Baseline')]

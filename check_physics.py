@@ -15,19 +15,16 @@ def main():
 
     sources = {
         'BEM': '', 
-        'BEM_NoYaw': '_NoYaw', 
         'SVEN': ''
     }
 
     for source_label, suffix in sources.items():
         print(f"=== VÉRIFICATION DES DONNÉES {source_label.upper()} ===")
         
-    
-        # Format : V_eff_BEM, V_eff_BEM_NoYaw, V_eff_SVEN
-        col_v = f'V_eff_{source_label}' if 'NoYaw' not in source_label else f'V_eff_BEM{suffix}'
-        col_alpha = f'alpha_{source_label}' if 'NoYaw' not in source_label else f'alpha_BEM{suffix}'
-        col_fn = f'Fn_{source_label}' if 'NoYaw' not in source_label else f'Fn_BEM{suffix}'
-        col_ft = f'Ft_{source_label}' if 'NoYaw' not in source_label else f'Ft_BEM{suffix}'
+        col_v = f'V_eff_{source_label}'
+        col_alpha = f'alpha_{source_label}'
+        col_fn = f'Fn_{source_label}'
+        col_ft = f'Ft_{source_label}'
 
         # ---------------------------------------------------------
         # est de convert_v_to_f (V_eff, alpha -> Fn, Ft)

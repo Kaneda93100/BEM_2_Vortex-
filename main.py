@@ -23,9 +23,10 @@ def main():
    
     df_full = load_clean_data()
     evaluate_baselines(df_full)
+
     # 2. Les stratégies à explorer
-    entrees = ['L', 'GR', 'GA']
-    residuelles = ['0', '1', '2']
+    entrees = ['L', 'GR', 'GA','G']
+    residuelles = ['0', '1']
     inters = ['f', 'v']
     
     # 3. Boucles d'expérimentation
@@ -47,7 +48,7 @@ def main():
                 # --- PHASE 1 : OPTIMISATION ---
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
-                #optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=200)
+                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
                 opt_duration = time.time() - opt_start
                 print(f"   >> Temps Optimisation : {format_duration(opt_duration)}")
                 

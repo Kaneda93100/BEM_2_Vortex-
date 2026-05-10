@@ -6,6 +6,7 @@ import os
 from sklearn.model_selection import KFold
 from .models import TurbineMLP
 from .data_loader import format_data
+from torch.utils.data import DataLoader, TensorDataset
 
 def optimize(df_train, entree, residuelle, inter, n_trials=50):
     # Détection du GPU
@@ -35,7 +36,16 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
         for train_idx, val_idx in kf.split(range(len(X_full))):
             X_tr, Y_tr = X_full[train_idx], Y_full[train_idx]
             X_val, Y_val = X_full[val_idx], Y_full[val_idx]
-            
+
+            if entree == 'G':
+                b_size = len(X_tr) # Full batch pour G
+            elif entree in ['GR', 'GA']:
+                b_size = 32        # Mini-batch adapté pour les profils
+            else: # 'L'
+                b_size = 128       # Mini-batch classique
+                
+            train_loader = DataLoader(TensorDataset(X_tr, Y_tr), batch_size=b_size, shuffle=True)
+
             # Modèle transféré sur le GPU ---
             model = TurbineMLP(X_full.shape[1], Y_full.shape[1], n_layers, n_neurons, dropout_rate).to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -43,10 +53,12 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
             model.train()
             # Simple boucle d'entraînement (réduite pour Optuna)
             for epoch in range(150):
-                optimizer.zero_grad()
-                loss = criterion(model(X_tr), Y_tr)
-                loss.backward()
-                optimizer.step()
+                model.train()
+                for batch_x, batch_y in train_loader:
+                    optimizer.zero_grad()
+                    loss = criterion(model(batch_x), batch_y)
+                    loss.backward()
+                    optimizer.step()
                 
             model.eval()
             with torch.no_grad():
