@@ -200,7 +200,7 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
         Y_np = np.array(Y_list)
 
     # 3. Normalisation
-    model_name = f"global_{res}_{inter}"
+    model_name = f"{entree}_{res_str}_{inter}"
     os.makedirs("scalers", exist_ok=True)
     path_x = f"scalers/scaler_X_{model_name}.pkl"
     path_y = f"scalers/scaler_Y_{model_name}.pkl"    
