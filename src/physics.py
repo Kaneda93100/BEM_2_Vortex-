@@ -103,3 +103,72 @@ def convert_v_to_f(V_eff, alpha_deg, r):
     Ft =- q * Ct #signe moins pour retrouver la même convention
     
     return Fn, Ft
+
+def compute_cp(df, col_fn, col_ft, R_rotor=2.25, Nb_pales=3, omega=44.5163679):
+    """
+    Calcule le coefficient de puissance (Cp) de l'éolienne à partir des champs de forces.
+    Gère dynamiquement les variations de yaw et de TSR.
+    """
+    # On travaille sur une copie pour ne pas altérer le DataFrame original
+    df_calc = df.copy()
+    geom = get_geometry()
+    
+    # 1. Calcul des longueurs de sections (dl)
+    r_unique = np.sort(df_calc['r'].unique())
+    nodes = [0.21] # Rayon du moyeu (hub)
+    for i in range(len(r_unique)):
+        next_node = 2 * r_unique[i] - nodes[-1]
+        nodes.append(next_node)
+    
+    dl_map = dict(zip(r_unique, np.diff(nodes)))
+    df_calc['dl'] = df_calc['r'].map(dl_map)
+    
+    # 2. Projection (calcul de phi en radians)
+    df_calc['phi_rad'] = PITCH_RAD + geom.get_twist_rad(df_calc['r'])
+    
+    # 3. Calcul du couple élémentaire (dQ)
+    Ft_corrige = df_calc[col_ft] * -1
+    cos_phi = np.cos(df_calc['phi_rad'])
+    sin_phi = np.sin(df_calc['phi_rad'])
+    
+    df_calc['dQ_r'] = df_calc[col_fn] * sin_phi + Ft_corrige * cos_phi
+    df_calc['dQ'] = df_calc['dQ_r'] * df_calc['r'] * df_calc['dl']
+    
+    # 4. Préparation du GroupBy
+    group_cols = ['yaw']
+    if 'TSR' in df_calc.columns:
+        group_cols.append('TSR')
+        
+    results = []
+    model_name = col_fn.replace('Fn_', '') # Extrait 'pred', 'SVEN', 'BEM', etc.
+    
+    for name, group in df_calc.groupby(group_cols):
+        if 'TSR' in group_cols:
+            yaw_val = name[0] if isinstance(name, tuple) else name
+            tsr_val = name[1] if isinstance(name, tuple) else 8.0
+        else:
+            yaw_val = name[0] if isinstance(name, tuple) else name
+            tsr_val = 8.0 # Valeur de TSR par défaut
+            
+  
+        # Omega est fixé, on calcule le vent théorique correspondant au TSR
+        u_vent = (omega * R_rotor) / tsr_val
+        
+        # Intégrations
+        Q_theta = group.groupby('theta')['dQ'].sum()  # Somme sur le rayon
+        Q_moyen = Q_theta.mean()                      # Moyenne sur l'azimut
+        
+        # Puissances
+        P_meca = Nb_pales * Q_moyen * omega
+        P_vent = 0.5 * RHO * np.pi * (R_rotor**2) * (u_vent**3)
+        
+        Cp = P_meca / P_vent
+        
+        res_dict = {
+            'yaw': yaw_val,
+            'TSR': tsr_val,
+            f'Cp_{model_name}': Cp
+        }
+        results.append(res_dict)
+        
+    return pd.DataFrame(results)

@@ -104,7 +104,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     elif entree in ['GR', 'GA']:
         b_size = 32
     else:
-        b_size = 128
+        b_size = 1024
         
     train_loader = DataLoader(TensorDataset(X_full_train_dev, Y_full_train_dev), batch_size=b_size, shuffle=True)
 

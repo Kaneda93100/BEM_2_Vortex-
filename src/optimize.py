@@ -42,7 +42,7 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
             elif entree in ['GR', 'GA']:
                 b_size = 32        # Mini-batch adapté pour les profils
             else: # 'L'
-                b_size = 128       # Mini-batch classique
+                b_size = 1024      # Mini-batch classique
                 
             train_loader = DataLoader(TensorDataset(X_tr, Y_tr), batch_size=b_size, shuffle=True)
 
