@@ -1,8 +1,0 @@
-\beamer@sectionintoc {1}{Objectif\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 3}{3}{0}{1}
-\beamer@sectionintoc {2}{Présentation de l'approche\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 4}{4}{0}{2}
-\beamer@subsectionintoc {2}{1}{Corrections locales/Globales\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 4}{4}{0}{2}
-\beamer@subsectionintoc {2}{2}{Le cas des profils\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 8}{8}{0}{2}
-\beamer@subsubsectionintoc {2}{2}{1}{Piste d'ajout des profils à l'espace des paramètres\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 8}{8}{0}{2}
-\beamer@subsubsectionintoc {2}{2}{2}{Résulats graphiques\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 9}{9}{0}{2}
-\beamer@subsectionintoc {2}{3}{Approche directe/intermédiaire\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 14}{14}{0}{2}
-\beamer@sectionintoc {3}{Création de donnée avec des solver FWV haute fidéflité\unhbox \voidb@x \cleaders \hbox to0.8em{\hss .\hss }\hfill \kern \z@ 18}{18}{0}{3}
