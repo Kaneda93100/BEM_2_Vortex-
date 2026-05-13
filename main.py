@@ -1,8 +1,8 @@
 import time
+import os
 from src.data_loader import load_clean_data, get_splits
 from src.optimize import optimize
-from src.evaluate import evaluator,evaluate_baselines
-
+from src.evaluate import evaluator, evaluate_baselines
 
 def format_duration(seconds):
     """Transforme des secondes en un format lisible."""
@@ -17,26 +17,27 @@ def main():
     # Début du chrono global
     global_start = time.time()
     
-    # 1. Chargement global une seule fois en mémoire
+    # 1. Chargement des données
     print("Chargement des données...")
     df_full = load_clean_data()
    
-    df_full = load_clean_data()
-    evaluate_baselines(df_full)
+    processed_path = os.path.join("data", "processed")
+    # Split unique par Yaw pour toutes les stratégies
+    df_train, df_test = get_splits(df_full, seed=42, test_size=0.3, save_dir=processed_path)
+    
+    # 2. Initialisation de la Baseline 
+    evaluate_baselines(df_test)
 
-    # 2. Les stratégies à explorer
-    entrees = ['L', 'GR', 'GA','G']
+    # 3. Les stratégies à tester
+    entrees = ['G','P']
     residuelles = ['0', '1']
     inters = ['f', 'v']
     
-    # 3. Boucles d'expérimentation
+    # 4. Boucles d'expérimentation
     for e in entrees:
         print(f"\n" + "#"*40)
         print(f" STRATÉGIE SPATIALE : {e}")
         print("#"*40)
-        
-        # Le split dépend de la stratégie spatiale (pour ne pas mélanger theta ou r)
-        df_train, df_test = get_splits(df_full, entree=e)
         
         for r in residuelles:
             for i in inters:
@@ -46,6 +47,7 @@ def main():
                 print(f"\n=== Modèle : {model_name} ===")
                 
                 # --- PHASE 1 : OPTIMISATION ---
+     
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
                 optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
@@ -63,13 +65,12 @@ def main():
                 model_total = time.time() - model_start
                 print(f"--- Modèle {model_name} terminé en {format_duration(model_total)} ---")
 
-    # 4. Synthèse finale
+    # 5. Synthèse finale
     print(f"\n" + "="*50)
     total_campaign_duration = time.time() - global_start
     print(f"CAMPAGNE TERMINÉE !")
     print(f"Temps total d'exécution : {format_duration(total_campaign_duration)}")
     print("="*50)
-
 
 if __name__ == "__main__":
     main()

@@ -20,3 +20,26 @@ class TurbineMLP(nn.Module):
 
     def forward(self, x):
         return self.network(x)
+
+
+class EnsemblePointNet(nn.Module):
+    """
+    Contient 1296 réseaux TurbineMLP indépendants.
+    Chaque réseau est spécialisé pour un couple (r, theta) précis.
+    """
+    def __init__(self, num_models, input_dim, output_dim, n_layers, n_neurons, dropout_rate):
+        super().__init__()
+        # On crée une liste PyTorch contenant les 1296 petits réseaux
+        self.models = nn.ModuleList([
+            TurbineMLP(input_dim, output_dim, n_layers, n_neurons, dropout_rate) 
+            for _ in range(num_models)
+        ])
+        
+    def forward(self, x):
+        # x est un tenseur de forme (num_models, batch_size, input_dim)
+        outputs = []
+        for i, model in enumerate(self.models):
+            outputs.append(model(x[i]))
+        
+        # On recombine les sorties en un seul tenseur
+        return torch.stack(outputs)
