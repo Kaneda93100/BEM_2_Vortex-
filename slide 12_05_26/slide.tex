@@ -1,0 +1,722 @@
+\documentclass[
+11pt,notheorems,hyperref={pdfauthor=whatever}
+]{beamer}
+
+\input{loadslides.tex} % Loads packages and some defined commands
+
+\title[
+% Text entered here will appear in the bottom middle
+]{Réunion du 12/05/2026}
+
+\subtitle{IFPEN/INRIA}
+
+\author[
+% Text entered here will appear in the bottom left corner
+]{
+    Arthur Timbeau, 
+    Adam Rozentalis,
+    Julien Salomon
+}
+
+
+\AtBeginSection[]{
+  \begin{frame}[plain]
+    \vfill
+    \centering
+    \usebeamerfont{title}\insertsection
+    \vfill
+  \end{frame}
+}
+
+\begin{document}
+
+% Generate title page
+
+\setbeamertemplate{footline}{}
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\setbeamertemplate{footline}{
+  \hfill\insertframenumber/\inserttotalframenumber\hspace{1em}\vspace{0.5em}
+}
+
+\begin{frame}
+    \tableofcontents
+\end{frame}
+
+\section{Introduction}
+
+\subsection{Brève introduction de la présentation}
+\begin{frame}{Brève introduction de la présentation}
+    Les modèles dit de la \textcolor{blue}{\textit{branche 1}} sont les modèles qui ont 
+    été développé en premier et présentéé lors de la réunion du 22/04/26.
+    
+    \vspace{0.3cm}
+
+    Ceux de la \textcolor{blue}{\textit{branche 2}} sont ceux qui ont été écrit tout récemment. 
+\end{frame}
+
+\subsection{Contenu du document}
+\begin{frame}{Contenu du document}
+    \begin{itemize}
+        \item Rappels sur les travaux précédemment réalisé et présentation des stratégies 
+        \item Présentation des corrections sur les tests de la branche 1 et résumé des performances
+        \item Introduction de la branche 2 et comparaison avec la branche 1
+        \item Présentation des résultats numériques
+    \end{itemize}    
+\end{frame}
+
+\section{Rappels sur les stratégies employées}
+
+\subsection{Corrections locales/Globales}
+
+\begin{frame}{Deux familles de correction}
+    Quatres familles de modèles sont envisagées :
+    \begin{center}
+    \begin{itemize}
+    \item Les corrections \textbf{locales} (L) : les \textcolor{red}{rayons} et les \textcolor{blue}{azimuts} sont des paramètres d’entrés
+    \item Les corrections à rayon fixé ($G_r$ ) : les \textcolor{blue}{azimuts}  sont des paramètres d’entrés.
+    \item Les corrections à azimut fixé ($G_a$ ) : les \textcolor{red}{rayons} sont des paramètres d’entrés
+    \item Les corrections \textbf{globales} (G) : les \textcolor{red}{rayons} et les \textcolor{blue}{azimuts}  sont fixés
+    \end{itemize}
+\end{center}
+\end{frame}
+
+
+\begin{frame}{Approche L}
+    Approche locale : inférences sur les efforts par sections radiale. 
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position radiale $r \in \left[R_{hub}, R\right]$
+            \item Position azimutale $\theta \in \left[0,2\pi\right]$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}$
+            \item Force tangentielle $F_T \in \mathbb{R}$
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Approche $G_r$}
+    Approche à azimut fixé : inférences sur les efforts en fonction d’un angle azimutal sur une grille de p
+    éléments.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position radiale $r \in \left[R_{hub}, R\right]$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^p$
+            \item Force tangentielle $F_T \in \mathbb{R}^p$
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Approche $G_a$}
+    Approche à azimut fixé : inférences sur les efforts en fonction d’un rayon sur une grille de n éléments.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position azimutale $\theta \in \left[0,2\pi\right]$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^n$
+            \item Force tangentielle $F_T \in \mathbb{R}^n$
+        \end{itemize}
+    \end{columns}
+\end{frame}
+\begin{frame}{Approche G}
+Approche globale : inférences sur les efforts sur toute les sections de la pale et tous les azimuts.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^{n \times p}$
+            \item Force tangentielle $F_T \in \mathbb{R}^{n \times p}$
+        \end{itemize}
+    \end{columns}    
+\end{frame}
+
+
+\begin{frame}{Résumé}
+    Les grandes familles de correction 
+    \begin{itemize}
+        \item \centering  $L$ :     inputs = $(r, \theta, \Lambda)$     || outputs = $(F_n, F_t) \in \mathbb{R}^2$
+        \item \centering  $G_r$ :   inputs = $(r, \Lambda)$             || outputs = $(\mathbf{F_n}, \mathbf{F_t}) \in \mathbb{R}^{2n}$
+        \item \centering  $G_a$ :   inputs = $(\theta, \Lambda)$        || outputs = $(\mathbf{F_n}, \mathbf{F_t}) \in \mathbb{R}^{2p}$
+        \item \centering  $G$ :     inputs = $(\Lambda)$                || outputs = $(\mathbf{F_n}, \mathbf{F_t}) \in \mathbb{R}^{2np}$
+    \end{itemize}
+
+     \vspace{0.3cm}
+
+     Où $\Lambda$ est un vecteur contenant d'autres paramètres indépendant de la géométrie et de la discrétisation.
+\end{frame}
+
+\subsection{Approche directe/intermédiaire}
+
+\begin{frame}{Approche directe}
+    \textbf{Approche directe} : corriger directement les efforts retournés par la BEM : 
+    
+    \vspace{0.4cm}
+    \begin{center}
+    \begin{tikzpicture}[node distance=1.5cm]
+        \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=1.1cm, align=center]
+            (bem) {Efforts BEM : \\ $\bigl(F_n^{BEM},\, F_t^{BEM}\bigr)$};
+        \node[draw, fill=orange!20, minimum width=2cm, minimum height=1.1cm, align=center, right=1.5cm of bem]
+            (nn)  {NN\\SkyNet};
+        \node[draw, rounded corners, fill=green!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of nn]
+            (skn) {Sorties inférées : \\ $\bigl(F_n^{SKN},\, F_t^{SKN}\bigr)$};
+        \draw[-stealth, line width=2pt] (bem) -- (nn);
+        \draw[-stealth, line width=2pt] (nn)  -- (skn);
+    \end{tikzpicture}
+    \end{center}
+
+    Dans ce cas, le vecteur $\Lambda$ contient les efforts normaux calculés par la BEM (soit une valeur, soit un distribution radiale ou azimutale ou soit 
+    une matrice de $n\times p$ coefficients.)
+\end{frame}
+
+\begin{frame}{Approche intermédiaire}
+    Approche intermédiaire : considérer une variable en amont des efforts (présente dans BEM et FWV) et inférer dessus. 
+
+        \begin{center}
+    \begin{tikzpicture}[node distance=1.5cm]
+        \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=1.1cm, align=center]
+            (bem) {Sorties BEM : \\ $X_{BEM}$};
+        \node[draw, rounded corners, fill=orange!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of bem]
+            (var_inter) {Sorties inférées : \\ $\text{SkyNet}(X_{BEM}) = Y_{SKN}$};
+
+        \draw[-stealth, line width=2pt] (bem) -- (var_inter);
+    \end{tikzpicture}
+
+    \vspace{0.3cm}
+    Où $G$ représente les différentes formules permettant de calculer les efforts à partir de la variable inférée.
+
+    \vspace{0.2cm}
+
+    Par exemple, les deux modèles utilisent dans le calcul des efforts la \textbf{vitesse effective} couplé à \textbf{l'angle d'attaque}.
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{BEM :}
+        Au niveau de la section de rayon $r$
+        \begin{itemize}\small
+            \item vitesse effective : $V_{eff} = \sqrt{\left[ U_{\infty}(1-a)^2 + ^\Omega r(1+a')^2\right]}$
+            \item angle d'attaque : $\alpha = \varphi -\left(\beta + \theta_{pitch}\right)$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{FWV :}
+        Au niveau de la section de rayon $r$ 
+        \begin{itemize}\small
+            \item Biot-Savart :  $V_{eff} = \frac{\Gamma(||r_1|| + ||r_2||)(r_1 \times r_2)}{4\pi ||r_1|| \, ||r_2||(||r_1||\,||r_2|| + (r_1 | r_2))}$
+            \item angle d'attaque :  $\alpha = \text{arctan}\bigl(\frac{(u|N)}{(u|T)}\bigr)$
+        \end{itemize}
+    \end{columns}    
+    \end{center}
+\end{frame}
+
+\begin{frame}{Variables d'entrée}
+    Que ce soit pour la variante intermédiaire ou directe, les variables d'entrées de ces modèles ont des entrées BEM 
+    \begin{itemize}
+        \item Sous la forme de scalaires dans l'approche $L$ (soit $ \Lambda \in \mathbb{R}^2$)
+        \item Sous la forme de vecteurs de $n$ coefficients dans l'approche $G_r$ (soit $ \Lambda \in \mathbb{R}^{2n}$)
+        \item Sous la forme de vecteurs de $p$ coefficients dans l'approche $G_a$ (soit $ \Lambda \in \mathbb{R}^{2p}$)
+        \item Sous la forme d'une matrice de $n \times p$ coefficients dans l'approche $G$ (soit $ \Lambda \in \mathbb{R}^{2np}$)
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Stratégies sans BEM : créer un challenger}
+    \begin{center}
+    En parallèle, des modèles émulant directement FWV (sans utiliser d'autre modèle) sont écrits dans le but de challenger les modèles corrigeant la BEM.\\ 
+    Objectif : \textbf{Montrer qu'un réseau de neurones informés par un modèle physique performe mieux qu'un modèle non informé}.
+    \end{center}
+\end{frame}
+
+\begin{frame}{Ensemble des stratégies possible}
+    \begin{center}
+        L'ensemble des stratégies possibles se résume par la formule suivante : 
+        \begin{align*}
+            \bigl(\text{local}, \text{global}\bigr) \times \bigl(\text{Avec BEM}, \text{Sans BEM}\bigr) \times \bigl(\text{Variable intermédiaire}, \text{Directe}\bigr)
+        \end{align*}
+    \end{center}
+\end{frame}
+
+
+\subsection{Architure du réseau de neurones}
+
+\begin{frame}{Réseau de neurones}
+    Le réseau de neurones est écrit avec la librairie PyTorch. Les modèles sont des \textit{Multi Layer Perceptron} (MLP). Les couches cachées sont de même taille. 
+    
+    \vspace{0.3cm}
+    
+    La couche de d'entrée est de dimension (\textbf{variable d'entrée }$\times$ \textbf{nombre de neurones}) et 
+
+    la couche de sortie est de dimension (\textbf{nombre de neurones} $\times$  \textbf{variable de sortie}).
+
+    Les fonctions d'activations sont les mêmes pour chaque couche : il s'agit de la \textit{REctified Linear Unit} (RELU) : 
+    \begin{align*}
+        \text{RELU}(x) = \text{max}(0,x)        
+    \end{align*}
+\end{frame}
+
+\begin{frame}{Hyperparamètres}
+    En plus des hyperparamètres classiques, un \textit{taux de dropout} est utilisé afin de s'assurer que chaque neurone est mobilisé lors de l'apprentissage.
+    
+    \vspace{0.2cm}
+
+    Les hyperparamètres sont choisit avec la librairie \textit{optuna}. Plusieurs entrainements sont lancés avec différents hyperparamètres choisit dans la plage
+    suivante : 
+    
+    \begin{itemize}
+        \item nombre de couches cachées : entre $2 \text{ et } 8$ (chosit entre 2 et 6)
+        \item nombre de neurones : entre $64$ et $512$ (chosit entre 277 et 493 )
+        \item taux de dropout : entre $0$ et $0.5$ (chosit entre $4.952e^{-5}$ et $0.0313$)
+        \item taux d'apprentissage : entre $1e^{-4} \text{ et } 1e^{-2}$ (choisit entre $0.0001$ et $0.0061$)
+    \end{itemize}
+    
+    Ils sont choisit comme étant ceux minimisant une erreur de validation croisée à 3 folds.
+\end{frame}
+
+\begin{frame}{Entrainement}
+    Pour accélerer l'entrainement, une méthode de \textit{Mini-Batch} à été mise en place. L'entrainement des modèles de la famille 
+    $G$ n'a pas nécéssité de batch. Pour $L$, les batchs contiennent $1024$ éléments (taille classiques), tandis que pour les familles $G_A \text{ et } G_R$
+    on nécéssité un réajustement à 52 éléments par batchs.
+
+    \vspace{0.3cm}
+
+    On notera que pour un même nombre d'epoch (1000), le temps d'entraînement par epoch croît : on compte 2 secondes pour les modèle $G$, 20 secondes pour les modèles $G_R$
+    et 2 minutes pour les modèles $L$.
+    
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   BRANCHE 1                                                                       %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Branche 1}
+
+\subsection{Retour sur les benchmarks des solveurs}
+\begin{frame}{Validation erronée}
+    Les tests montré lors de la dernière réunion présentaient plusieurs problèmes. 
+    \begin{itemize}
+        \item (I) Les géométries utilisées pour faire tourner les solveurs n'étaient pas les mêmes         
+        \item (II) Certains calculs étaient faux.
+    \end{itemize}
+    \vspace{0.2cm}
+    Toutes ces incohérences ont été corrigées. La conclusion est celle attendue : 
+    
+    \vspace{0.3cm}
+
+    \begin{align}
+            \textbf{SVEN} \geq \textbf{BEM avec yaw} \text{ (en terme de fidéflité à CASTOR)}
+    \end{align}
+\end{frame}
+
+\begin{frame}{Validation corrigée}
+    \begin{figure}[h]
+    \centering 
+        \includegraphics[width=0.497\textwidth]{sanitycheck_Yaw15°_forces_rayons.png}
+        \includegraphics[width=0.497\textwidth]{wrong_val.png}
+        \caption{Validation corrigée à gauche et erronée à droite} 
+        \label{fig:val} 
+    \end{figure}
+\end{frame}
+
+\begin{frame}{Mesure de fidélité}
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+            \captionof{table}{Mesures de fidélité à CASTOR pour $F_n$}
+            \begin{tabular}{c c c}
+                \hline
+                Modèle               & BEM   & SVEN  \\
+                \hline
+                RMSE (stricte) (N/m) & 26.82 & 13.20 \\
+                RMSE (rel.) (\%)     & 12.9\%& 6.4\% \\
+                ERR Résultante (\%)  & 9.1\% & 0.1\% \\
+                Wassertstein         & 18.806& 3.391 \\
+                Corrélation (\%)     & 99.4\% & 99.6\% \\
+                \hline
+            \end{tabular}
+        
+        \column{0.44\textwidth}
+            \captionof{table}{Mesures de fidélité à CASTOR pour $F_t$}
+            \begin{tabular}{c c c}
+                \hline
+                Modèle               & BEM   & SVEN     \\
+                \hline
+                RMSE (stricte) (N/m) & 4.82   & 2.98    \\
+                RMSE (rel.) (\%)     & 31.2\% & 19.3\%  \\
+                ERR Résultante (\%)  & 22.3\% & 1.4\%   \\
+                Wassertstein         & 3.482  & 0.482   \\
+                Corrélation (\%)     & 96.2\% & 97.2\%  \\
+                \hline
+            \end{tabular}
+    \end{columns}    
+\end{frame}
+
+\begin{frame}{Nouvelle mesure de validation}
+    Une nouvelle méthode de mesure de qualité d'une prédiction mise en place consiste à regarder les rendements calculés à partir des informations inférées. 
+    Pour valider cette mesure, elle a été utilisé pour tester la fidélité de BEM et SVEN à CASTOR.
+
+    \begin{figure}[h]
+        \centering 
+        \includegraphics[width=0.7\textwidth]{sanitycheck_rendement.png}
+        \caption{Rendements} 
+        \label{fig:rend_fid} 
+    \end{figure}
+    
+\end{frame}
+
+\begin{frame}{Élimination de la reconstruction BEM à partir de FVW}
+    L'une des stratégies consistait à corriger les sorties $\big(a,a',\varphi\big)$ de la BEM par rapport à leurs analogues reconstruit à partir de 
+    FVW. 
+
+    \vspace{0.5cm}
+    
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{BEM} (simplifiée) :
+        Au niveau de la section de rayon $r$
+        \begin{itemize}
+            \item $\tan(\varphi) = \frac{1-a}{\lambda_r(1+a')}$
+            \item $\frac{a}{1-a} = \frac{\sigma_{\lambda_r}}{4F(\varphi)\sin(\varphi)^2}C_L(\varphi - \beta_{r})cos(\varphi)$ 
+        \end{itemize}
+            
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0.9, 0) -- (0, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{FWV :}
+        Au niveau de la section de rayon $r$ 
+        \begin{itemize}\small
+            \item $ \varphi = \alpha + \beta_r + \theta_{pitch}$
+            \item $a = 1 - \sin(\varphi)\frac{V_{eff}}{U_{\infty}}$
+        \end{itemize}
+    \end{columns}    
+    
+    \vspace{0.5cm}
+    
+    Cette approche à été mise de côté pour plusieurs raisons : 
+    \begin{itemize}
+        \item Le calcul BEM de $a$ est plus sophistiqué que celui de FVW
+        \item Adaptation du calcul complexe : problème d'unicité dans les valeurs retournées
+    \end{itemize}
+
+    \vspace{0.3cm}
+    
+    Elle sera peut-être réexplorée après une étude plus approfondie.
+\end{frame}
+
+\subsection{Conclusion sur la branche 1}
+
+\begin{frame}{Stratégies testés}
+    Stratégies testées sur la branche 1 : 
+    \[
+        \bigl(\text{local}, \text{GA}, \text{GR}, \text{global}\bigr) \times \bigl(\text{Avec BEM}, \text{Sans BEM}\bigr) \times \bigl((V_{eff},\alpha) , \text{Efforts normaux et tangentiels}\bigr)
+    \]
+    
+\end{frame}
+
+\begin{frame}{Résultats bruts}
+    \captionof{table}{\textbf{Résultats bruts pour la branche 1}}
+    \begin{tabular}{c c c c c c c}
+        \hline
+        Modèle & Epoch & Score Global & RMSE $F_n$ & RMSE $F_t$ & Wass $F_n$ & Wass $F_t$ \\
+        \hline
+        GR\_0\_f & 1000 & 0.30\% & 0.07\% & 0.23\% & 0.085 & 0.023 \\
+        GR\_0\_v & 1000 & 0.32\% & 0.08\% & 0.24\% & 0.110 & 0.022 \\
+        GR\_1\_f & 1000 & 0.70\% & 0.07\% & 0.63\% & 0.100 & 0.036 \\
+        GR\_1\_v & 1000 & 0.65\% & 0.24\% & 0.41\% & 0.370 & 0.050 \\
+        GR\_2\_f & 1000 & 0.42\% & 0.10\% & 0.32\% & 0.129 & 0.031 \\
+        GR\_2\_v & 1000 & 0.39\% & 0.10\% & 0.29\% & 0.137 & 0.029 \\
+        \hline
+        L\_0\_f  & 1000 & 23.02\% & 8.62\% & 14.40\% & 4.218 & 0.567 \\
+        L\_0\_v  & 1000 & 9.96\%  & 2.29\% & 7.67\%  & 2.167 & 0.458 \\
+        L\_1\_f  & 1000 & 1.81\%  & 0.27\% & 1.54\%  & 0.387 & 0.115 \\
+        L\_1\_v  & 1000 & 3.34\%  & 0.88\% & 2.46\%  & 1.109 & 0.241 \\
+        L\_2\_f  & 1000 & 0.94\%  & 0.19\% & 0.76\%  & 0.238 & 0.055 \\
+        L\_2\_v  & 1000 & 3.39\%  & 0.87\% & 2.52\%  & 0.921 & 0.165 \\
+        \hline
+        GA\_0\_f & 1000 & 40.61\% & 11.75\% & 28.86\% & 12.112 & 1.712 \\
+        GA\_0\_v & 1000 & 18.25\% & 3.86\%  & 14.39\% & 6.525  & 0.951 \\
+        GA\_1\_f & 1000 & 11.25\% & 2.96\%  & 8.29\%  & 4.379  & 0.832 \\
+        GA\_1\_v & 1000 & 34.00\% & 8.30\%  & 25.71\% & 10.598 & 1.719 \\
+        GA\_2\_f & 1000 & 16.23\% & 4.20\%  & 12.04\% & 5.256  & 0.968 \\
+        GA\_2\_v & 1000 & 31.41\% & 7.86\%  & 23.55\% & 9.997  & 1.860 \\
+        \hline
+    \end{tabular}
+\end{frame}
+
+\begin{frame}{Résumé des résultats bruts}
+    L'utilisation de la BEM pour les modèles donne de meilleurs résultats dans l'approche locale.
+    
+    \vspace{0.6cm}
+    
+    Pour les stratégies semi-locale, l'information de la BEM les rends moins efficaces. On note aussi que l'approche à rayon fixé (GA) est très peu efficace. 
+
+    \vspace{0.6cm}
+
+    Ces résultats sont plutôt contre-intuitif : on s'attendrait à ce qu'un modèle informé ,au travers de plus de variable, par une physique plus simple
+    devrait permettre de meilleures prédiction sur la physique plus sophistiquée. 
+\end{frame}
+
+
+\subsection{Graphiques}
+
+\begin{frame}{Graphiques : $L$}
+    \begin{figure}[h]
+    \centering 
+        \includegraphics[width=0.4\textwidth]{branche1_summary_Meilleur_L.png}
+        \includegraphics[width=0.4\textwidth]{branche1_summary_Pire_L.png}
+        \caption{Meilleures performances à gauche et pire à droite} 
+        \label{fig:L_perf_1} 
+    \end{figure}
+\end{frame}
+
+\begin{frame}{Graphique : $G_R$}
+        \begin{figure}[h]
+        \centering 
+        \includegraphics[width=0.4\textwidth]{branche1_summary_Meilleur_GR.png}
+        \includegraphics[width=0.4\textwidth]{branche1_summary_Pire_GR.png}
+        \caption{Meilleures performances à gauche et pire à droite} 
+        \label{fig:GR_perf_1} 
+    \end{figure}
+\end{frame}
+
+\begin{frame}{Graphique : $G_A$}
+        \begin{figure}[h]
+        \centering 
+        \includegraphics[width=0.4\textwidth]{branche1_summary_Meilleur_GA.png}
+        \includegraphics[width=0.4\textwidth]{branche1_summary_Pire_GA.png}
+        \caption{Meilleures performances à gauche et pire à droite} 
+        \label{fig:GA_perf_1} 
+    \end{figure}
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   BRANCHE 2                                                                       %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Branche 2}
+
+\subsection{Présentation}
+
+\begin{frame}{Présentation}
+    Les modèles de la branche 2 ont pour but de permettre l'implémentation de la la stratégie globale (abrégée G). 
+    
+    \vspace{0.3cm}
+
+    L'idée consiste à travailler avec une grille d'azimutale de $p \in \mathbb{N}$ éléments et une grille radiale de $n \in \mathbb{N}$ éléments. 
+    Dans cette stratégie, les variables sur lesquels le modèle peut s'entraîner sont le yaw et le TSR. Les simulations effectuées avaient $p = 36$ et $n = 36$. 
+
+    \vspace{0.3cm}
+
+    L'objectif à terme est de constituer un dataset contenant les diverses variables d'intérêts pour plusieurs combinaison de yaw et de TSR. Par soucis
+    de simplicité, le TSR à été fixé pour pouvoir commencer les 1er tests.
+
+    \vspace{0.3cm}
+
+    Les codes ont été écrit de sorte que les autres stratégies ait pu être essayées.
+\end{frame}
+
+\subsection{Comparaison conceptuelle avec la branche 1}
+\begin{frame}{Comparaison conceptuelle avec la branche 1}
+La différence majeure entre les modèles de la branche 1 et la branche 2 consiste en les \textbf{paramètres d'entrées}. 
+
+\vspace{1cm}
+
+\begin{columns}[c]
+        \column{0.44\textwidth}
+        Variables d'entrées \textbf{Branche 1} :  
+        \begin{itemize}\small
+            \item Informations BEM (forces ou variable intermédiaire)
+            \item $r$ ou $\theta$ selon le choix de la famille de modèle (L,G,GA,GR)
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+
+        \column{0.44\textwidth}
+        Variables d'entrées \textbf{Branche 2} :
+        \begin{itemize}\small
+            \item Informations BEM (forces ou variable intermédiaire)
+            \item $r$ ou $\theta$ selon le choix de la famille de modèle (L,G,GA,GR)
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+            \item TSR $\in \left[4, 12\right] $
+        \end{itemize}
+    \end{columns}
+
+    \vspace{1cm}
+
+    Pour deux modèles d'une même famille, celui de la branche 1 est a priori moins "généralisable" que celui de la branche 2. Ce dernier est capable d'inférer sur des configurations métérologiques 
+    différentes.  
+\end{frame}
+
+\subsection{Performances de la branche 2}
+\begin{frame}{Résultats brut}
+
+    \captionof{table}{\textbf{Résumé brut pour la branche 2}}
+    \begin{tabular}{c c c c c c c}
+        \hline
+        Modèle & Epoch & Score Global & RMSE $F_n$ & RMSE $F_t$ & Wass $F_n$ & Wass $F_t$ \\
+        \hline
+        GR\_0\_f & 1000 & 0.88\% & 0.15\% & 0.72\% & 0.137 & 0.037 \\
+        GR\_1\_f & 1000 & 1.33\% & 0.31\% & 1.02\% & 0.202 & 0.041 \\
+        \hline
+        GR\_0\_v & 1000 & 4.08\% & 1.09\% & 2.99\% & 0.783 & 0.167 \\
+        GR\_1\_v & 1000 & 1.04\% & 0.12\% & 0.92\% & 0.103 & 0.016 \\
+        \hline
+        L\_0\_f  & 1000 & 14.10\% & 5.55\% & 8.55\% & 4.242 & 0.315 \\
+        L\_1\_f  & 1000 & 1.61\% & 0.33\% & 1.28\% & 0.265 & 0.065 \\
+        \hline
+        L\_0\_v  & 1000 & 11.52\% & 2.58\% & 8.95\% & 1.844 & 0.498 \\
+        L\_1\_v  & 1000 & 4.22\% & 1.20\% & 3.02\% & 0.904 & 0.128 \\
+        \hline
+        G\_0\_f  & 1000 & 3.23\% & 0.69\% & 2.54\% & 0.658 & 0.160 \\
+        G\_1\_f  & 1000 & 3.95\% & 0.81\% & 3.14\% & 0.744 & 0.118 \\
+        \hline
+        G\_0\_v  & 1000 & 3.81\% & 0.97\% & 2.84\% & 0.853 & 0.183 \\
+        G\_1\_v  & 1000 & 5.96\% & 1.95\% & 4.02\% & 0.962 & 0.180 \\
+        \hline
+    \end{tabular}
+\end{frame}
+
+\begin{frame}{Résumé des résutats bruts}
+    Les mesures sont, dans ces cas, toutes équivalentes les unes par rapport aux autres.
+
+    \vspace{0.3cm}
+    
+    Les modèles de la famille $L$ semblent beaucoup plus performant lorsqu'ils ont l'information de la BEM.
+
+    \vspace{0.3cm}
+
+    Dans les autres cas, l'approche $(V_{eff}, \alpha)$ semble meilleur avec que sans la BEM. L'approche directe dans ces cas est meilleure sans BEM.
+\end{frame}
+
+\begin{frame}{Graphiques : $L$}
+        \begin{figure}[h]
+        \centering 
+        \includegraphics[width=1\textwidth]{branche2_synthese_famille_L.png}
+        \caption{Plot des rendements} 
+        \label{fig:rend_L_2} 
+    \end{figure}
+\end{frame}
+
+\begin{frame}{Graphiques : $G_R$}
+    \begin{figure}[h]
+        \centering 
+        \includegraphics[width=1\textwidth]{branche_synthese_famille_GR.png}
+        \caption{Plot des rendements} 
+        \label{fig:rend_GR_2} 
+    \end{figure}
+\end{frame}
+
+\begin{frame}{Graphiques : $G$}
+        \begin{figure}[h]
+        \centering 
+        \includegraphics[width=1\textwidth]{branche2_synthese_famille_G.png}
+        \caption{Plot des rendements} 
+        \label{fig:rend_G_2} 
+    \end{figure}
+\end{frame}
+
+
+\subsection{Comparaison des performances entre la branche 1 et 2 }
+
+\begin{frame}{Comparaison des résultats}
+L'ajout du yaw comme paramètre d'entrée des modèles fait baisser leur précision dans l'ensemble au sens où la plus faible erreur de précision est plus grande lorsque
+le yaw est un paramètre. En revanche, elle est "beaucoup plus stable", c'est-à-dire que la plus grande erreur de précision est plus faible lorsque le yaw est un paramètre pour la mesure de Wassertstein.
+
+\vspace{0.3cm}
+
+L'ajout du yaw donne plus de poid aux modèles informés par la BEM : un modèle informé par une physique "grossière" permet de mieux prédire les sorties d'une physique plus "fine". 
+
+
+\end{frame} 
+\end{document}
