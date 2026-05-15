@@ -108,7 +108,7 @@ def get_splits(df, entree, seed = 42, test_size = 0.2, save_dir = None) :
     return train_full, val_full
 
 
-def format_data(df, entree, res, inter, is_train, device = 'cpu'):
+def format_data(df, entree, res, inter, is_train, device = 'cpu', ponderate = False):
     """
     On conserve l'idée des plusieurs stratégies (inter,direct) x (bem,no_bem)
     """
@@ -124,12 +124,27 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
 
     # 2. Sélection des données selon la stratégie
     if entree == 'L':
+        indexs = df[cols_sven].index
         if res_str == '1': # Stratégie résiduelle
-            Y_np = df[cols_sven].values - df[cols_bem].values
-            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+            if ponderate == True : 
+                Ypond = []
+                for i in range(len(cols_sven))  :
+                    Ypond.append((df[cols_sven[i]].values - df[cols_bem[i]].values)*df['r'][indexs].values)
+                Y_np = np.array(Ypond).T
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+            else : 
+                Y_np = df[cols_sven].values - df[cols_bem].values
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
         else: # Stratégie directe
-            Y_np = df[cols_sven].values
-            X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw']].values
+            if ponderate == True : 
+                Ypond = []
+                for i in range(len(cols_sven))  :
+                    Ypond.append((df[cols_sven[i]].values)*df['r'][indexs].values)
+                Y_np = np.array(Ypond).T
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+            else : 
+                Y_np = df[cols_sven].values
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw']].values
 
     elif entree == 'GR':
         # On groupe par angle ET par condition de vent
@@ -137,8 +152,19 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
         X_list, Y_list = [], []
         for (th, y_val), group in grouped:
             group = group.sort_values('r')
-            y_sven = group[cols_sven].values.flatten()
-            y_bem = group[cols_bem].values.flatten()
+            index_group = group.index
+            
+            if ponderate == True :
+                Ypond_sven = []
+                Ypond_bem = []
+                for i in range(len(cols_sven)) :
+                    Ypond_sven.append(group[cols_sven[i]].values*df['r'][index_group].values)
+                    Ypond_bem.append(group[cols_bem[i]].values*df['r'][index_group].values) 
+                y_sven = (np.array(Ypond_sven)).flatten()
+                y_bem = (np.array(Ypond_bem)).flatten()
+            else : 
+                y_sven = group[cols_sven].values.flatten()
+                y_bem = group[cols_bem].values.flatten()    
             
             # Extraction d'un seul scalaire par groupe
             c_th = group['cos_theta'].iloc[0]
@@ -163,8 +189,19 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
         X_list, Y_list = [], []
         for (r_val, y_val), group in grouped:
             group = group.sort_values('theta')
-            y_sven = group[cols_sven].values.flatten()
-            y_bem = group[cols_bem].values.flatten()
+            index_group = group.index
+
+            if ponderate == True :
+                Ypond_sven = []
+                Ypond_bem = []
+                for i in range(len(cols_sven)) :
+                    Ypond_sven.append(group[cols_sven[i]].values*df['r'][index_group].values)
+                    Ypond_bem.append(group[cols_bem[i]].values*df['r'][index_group].values) 
+                y_sven = (np.array(Ypond_sven)).flatten()
+                y_bem = (np.array(Ypond_bem)).flatten()
+            else : 
+                y_sven = group[cols_sven].values.flatten()
+                y_bem = group[cols_bem].values.flatten() 
 
             if res_str == '1':
                 Y_val = y_sven - y_bem
@@ -184,8 +221,19 @@ def format_data(df, entree, res, inter, is_train, device = 'cpu'):
         for y_val, group in grouped:
             # Tri strict pour que le vecteur soit toujours dans le même ordre (theta puis r)
             group = group.sort_values(['theta', 'r'])
-            y_sven = group[cols_sven].values.flatten()
-            y_bem = group[cols_bem].values.flatten()
+            index_group = group.index
+
+            if ponderate == True :
+                Ypond_sven = []
+                Ypond_bem = []
+                for i in range(len(cols_sven)) :
+                    Ypond_sven.append(group[cols_sven[i]].values*df['r'][index_group].values)
+                    Ypond_bem.append(group[cols_bem[i]].values*df['r'][index_group].values) 
+                y_sven = (np.array(Ypond_sven)).flatten()
+                y_bem = (np.array(Ypond_bem)).flatten()
+            else : 
+                y_sven = group[cols_sven].values.flatten()
+                y_bem = group[cols_bem].values.flatten() 
             
             if res_str == '1':
                 Y_val = y_sven - y_bem
