@@ -28,16 +28,17 @@ def main():
     # 2. Initialisation de la Baseline 
     evaluate_baselines(df_test)
 
-    # 3. Les stratégies à tester
-    entrees = ['G','P']
+    # 3. Les stratégies à tester (Le Nouveau Duel !)
+    entrees = ['GV', 'GM']
     residuelles = ['0', '1']
     inters = ['f', 'v']
     
     # 4. Boucles d'expérimentation
     for e in entrees:
-        print(f"\n" + "#"*40)
-        print(f" STRATÉGIE SPATIALE : {e}")
-        print("#"*40)
+        print(f"\n" + "#"*45)
+        nom_strat = "Vectoriel (MLP)" if e == 'GV' else "Matriciel/Spatial (CNN)"
+        print(f" STRATÉGIE : {e} - {nom_strat}")
+        print("#"*45)
         
         for r in residuelles:
             for i in inters:
@@ -47,10 +48,9 @@ def main():
                 print(f"\n=== Modèle : {model_name} ===")
                 
                 # --- PHASE 1 : OPTIMISATION ---
-     
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
-                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
+                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=200)
                 opt_duration = time.time() - opt_start
                 print(f"   >> Temps Optimisation : {format_duration(opt_duration)}")
                 
