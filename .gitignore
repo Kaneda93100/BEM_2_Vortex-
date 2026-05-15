@@ -30,6 +30,10 @@ venv/
 .env
 
 
+
 .vscode/
 .idea/
 .DS_Store
+
+
+test.py
