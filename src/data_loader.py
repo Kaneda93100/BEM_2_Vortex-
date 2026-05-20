@@ -10,10 +10,15 @@ from sklearn.preprocessing import StandardScaler
 def load_clean_data(path_forces="data/raw/fichier_forces.csv", path_vitesses="data/raw/fichier_vitesses.csv"):
     df_f = pd.read_csv(path_forces)
     df_v = pd.read_csv(path_vitesses)
-    return df_f.merge(df_v, on=['yaw', 'r', 'theta'])
+    
+    merge_keys = ['yaw', 'r', 'theta']
+    if 'TSR' in df_f.columns and 'TSR' in df_v.columns:
+        merge_keys.append('TSR')
+        
+    return df_f.merge(df_v, on=merge_keys)
 
 def get_splits(df, seed=42, test_size=0.2, save_dir=None):
-    """ Séparation : 80% Train / 20% Test. """
+    """ Séparation : 80% Train / 20% Test. (On sépare par Yaw) """
     yaws_uniques = df['yaw'].unique()
     
     train_yaw, test_yaw = train_test_split(yaws_uniques, test_size=test_size, random_state=seed)
@@ -35,23 +40,28 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
     if inter == 'f': cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
     elif inter == 'v': cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
 
+    # Sécurité au cas où on passe un DataFrame sans TSR
+    if 'TSR' not in df.columns:
+        df['TSR'] = 8.0
+
     # ==========================================
     # STRATÉGIE GV (Global Vector) - MLP
     # ==========================================
     if entree == 'GV': 
-        grouped = df.groupby('yaw')
+        grouped = df.groupby(['yaw', 'TSR'])
         X_list, Y_list = [], []
-        for y_val, group in grouped:
+        
+        for (y_val, tsr_val), group in grouped:
             group = group.sort_values(['theta', 'r'])
             y_sven = group[cols_sven].values.flatten()
             y_bem = group[cols_bem].values.flatten()
             
             if res_str == '1':
                 Y_val = y_sven - y_bem
-                X_val = np.concatenate(([y_val], y_bem)) 
+                X_val = np.concatenate(([y_val, tsr_val], y_bem)) 
             else:
                 Y_val = y_sven
-                X_val = np.array([y_val])
+                X_val = np.array([y_val, tsr_val])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
@@ -61,39 +71,35 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
     # STRATÉGIE GM (Global Matrix) - Image/CNN
     # ==========================================
     elif entree == 'GM':
-        grouped = df.groupby('yaw')
+        grouped = df.groupby(['yaw', 'TSR'])
         X_list, Y_list = [], []
         
-        # Extraction des coordonnées pour la grille
         r_uniques = np.sort(df['r'].unique())
         theta_uniques = np.sort(df['theta'].unique())
         
-        for y_val, group in grouped:
-            # Tri pour former une image cohérente (lignes = r, colonnes = theta)
+        for (y_val, tsr_val), group in grouped:
             group = group.sort_values(['r', 'theta'])
             
             # Reshape (36*36, 2) -> (36, 36, 2) -> Transpose pour (Canaux, Hauteur, Largeur) -> (2, 36, 36)
             y_sven = group[cols_sven].values.reshape(len(r_uniques), len(theta_uniques), 2).transpose(2, 0, 1)
             y_bem = group[cols_bem].values.reshape(len(r_uniques), len(theta_uniques), 2).transpose(2, 0, 1)
             
-            # Canal Yaw (Broadcasting : un "pixel" = la valeur du yaw)
             yaw_channel = np.full((len(r_uniques), len(theta_uniques)), y_val)
+            tsr_channel = np.full((len(r_uniques), len(theta_uniques)), tsr_val)
             
             if res_str == '1':
                 Y_val = y_sven - y_bem
-                # Entrée : 3 canaux (BEM 1, BEM 2, Yaw)
-                X_val = np.stack([y_bem[0], y_bem[1], yaw_channel])
+                # Entrée : 4 canaux (BEM 1, BEM 2, Yaw, TSR)
+                X_val = np.stack([y_bem[0], y_bem[1], yaw_channel, tsr_channel])
             else:
                 Y_val = y_sven
-                # Création des grilles de coordonnées (CoordConv)
                 R_grid, Theta_grid = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
-                # Entrée : 3 canaux (Yaw, Grille r, Grille theta)
-                X_val = np.stack([yaw_channel, R_grid, Theta_grid])
+                # Entrée : 4 canaux (Yaw, TSR, Grille r, Grille theta)
+                X_val = np.stack([yaw_channel, tsr_channel, R_grid, Theta_grid])
                 
             X_list.append(X_val)
             Y_list.append(Y_val)
             
-        # X_np a la forme (Batch, 3, 36, 36) | Y_np a la forme (Batch, 2, 36, 36)
         X_np, Y_np = np.array(X_list), np.array(Y_list)
 
     else:
@@ -106,7 +112,6 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
     os.makedirs("scalers", exist_ok=True)
     path_x, path_y = f"scalers/scaler_X_{model_name}.pkl", f"scalers/scaler_Y_{model_name}.pkl"    
 
-    # Pour le GM : on aplatit temporairement les images pour sklearn, puis on redonne la forme 4D.
     original_shape_X = X_np.shape
     original_shape_Y = Y_np.shape
     
@@ -126,7 +131,6 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
         X_scaled = scaler_X.transform(X_np)
         Y_scaled = scaler_Y.transform(Y_np)    
 
-    # Reconstitution des images 4D après scaling
     if entree == 'GM':
         X_scaled = X_scaled.reshape(original_shape_X)
         Y_scaled = Y_scaled.reshape(original_shape_Y)

@@ -15,7 +15,8 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
     
     # Formatage sur tout le jeu d'entraînement
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
-        
+    in_dim = X_full.shape[1] 
+    out_dim = Y_full.shape[1] if entree == 'GV' else Y_full.shape[1] 
     def objective(trial):
         # 1. Choix des hyperparamètres selon l'architecture
         if entree == 'GV':
@@ -39,9 +40,9 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
             
             # 2. Instanciation dynamique du modèle
             if entree == 'GV':
-                model = TurbineMLP(X_full.shape[1], Y_full.shape[1], n_layers, n_neurons, dropout_rate, device=device).to(device)
+                model = TurbineMLP(in_dim, out_dim, n_layers, n_neurons, dropout_rate, device=device).to(device)
             elif entree == 'GM':
-                model = TurbineCNN(in_channels=3, out_channels=2, n_layers=n_layers, base_filters=base_filters, dropout_rate=dropout_rate, device=device).to(device)
+                model = TurbineCNN(in_channels=in_dim, out_channels=out_dim, n_layers=n_layers, base_filters=base_filters, dropout_rate=dropout_rate, device=device).to(device)
 
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
             

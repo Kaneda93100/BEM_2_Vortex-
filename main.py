@@ -29,7 +29,7 @@ def main():
     evaluate_baselines(df_test)
 
     # 3. Les stratégies à tester (Le Nouveau Duel !)
-    entrees = ['GV', 'GM']
+    entrees = ['GM']
     residuelles = ['0', '1']
     inters = ['f', 'v']
     
@@ -50,7 +50,7 @@ def main():
                 # --- PHASE 1 : OPTIMISATION ---
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
-                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=200)
+                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
                 opt_duration = time.time() - opt_start
                 print(f"   >> Temps Optimisation : {format_duration(opt_duration)}")
                 

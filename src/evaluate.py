@@ -77,7 +77,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
                            hparams['n_layers'], hparams['n_neurons'], 
                            hparams['dropout_rate'], device=device).to(device)
     elif entree == 'GM':
-        model = TurbineCNN(in_channels=3, out_channels=2, 
+        # --- CORRECTION : Utiliser X_train.shape[1] au lieu de 3 ---
+        in_channels = X_train.shape[1]
+        model = TurbineCNN(in_channels=in_channels, out_channels=2, 
                            n_layers=hparams['n_layers'], base_filters=hparams['base_filters'], 
                            dropout_rate=hparams['dropout_rate'], device=device).to(device)
 

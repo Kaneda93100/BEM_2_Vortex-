@@ -44,7 +44,7 @@ class PeriodicPadding2d(nn.Module):
 
 class TurbineCNN(nn.Module):
     """ Stratégie GM : Réseau Entièrement Convolutif (Image-to-Image) """
-    def __init__(self, in_channels=3, out_channels=2, n_layers=4, base_filters=32, dropout_rate=0.1, device='cpu'):
+    def __init__(self, in_channels=4, out_channels=2, n_layers=4, base_filters=32, dropout_rate=0.1, device='cpu'):
         super(TurbineCNN, self).__init__()
         
         layers = []
