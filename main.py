@@ -23,13 +23,13 @@ def main():
    
     processed_path = os.path.join("data", "processed")
     # Split unique par Yaw pour toutes les stratégies
-    df_train, df_test = get_splits(df_full, seed=42, test_size=0.3, save_dir=processed_path)
+    df_train, df_test = get_splits(df_full, seed=42, test_size=0.2, save_dir=processed_path)
     
     # 2. Initialisation de la Baseline 
     evaluate_baselines(df_test)
 
-    # 3. Les stratégies à tester (Le Nouveau Duel !)
-    entrees = ['GM']
+    # 3. Les stratégies à tester 
+    entrees = ['GV']
     residuelles = ['0', '1']
     inters = ['f', 'v']
     
@@ -50,7 +50,7 @@ def main():
                 # --- PHASE 1 : OPTIMISATION ---
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
-                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
+                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=200)
                 opt_duration = time.time() - opt_start
                 print(f"   >> Temps Optimisation : {format_duration(opt_duration)}")
                 

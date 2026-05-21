@@ -20,11 +20,11 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
     def objective(trial):
         # 1. Choix des hyperparamètres selon l'architecture
         if entree == 'GV':
-            n_layers = trial.suggest_int('n_layers', 2, 8)     
-            n_neurons = trial.suggest_int('n_neurons', 64, 512)
+            n_layers = trial.suggest_int('n_layers', 2, 7)     
+            n_neurons = trial.suggest_int('n_neurons', 128, 1024, step=64)
         elif entree == 'GM':
-            n_layers = trial.suggest_int('n_layers', 2, 6)     
-            base_filters = trial.suggest_categorical('base_filters', [16, 32, 64])
+            n_layers = trial.suggest_int('n_layers', 3, 8)     
+            base_filters = trial.suggest_categorical('base_filters', [ 32, 64,128])
             
         dropout_rate = trial.suggest_float('dropout_rate', 0.0, 0.4)
         lr = trial.suggest_float('lr', 1e-4, 1e-2, log=True)
@@ -47,7 +47,7 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
             
             model.train()
-            epochs = 150
+            epochs = 300
             
             pbar = tqdm(range(epochs), desc=f"Trial {trial.number} | Fold {fold+1}/3", leave=False)
             for epoch in pbar:
