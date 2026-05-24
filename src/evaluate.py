@@ -1,11 +1,13 @@
 import os
 import json
 import pickle
+import copy
 import torch
 import torch.nn as nn
 import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
+from sklearn.model_selection import train_test_split
 from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder
 from .data_loader import format_data
 from .physics import convert_v_to_f
@@ -70,8 +72,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     ae_final = None
     use_ae = hparams.get('use_autoencoder', False)
     latent_dim = hparams.get('latent_dim', 64)
+    criterion = nn.MSELoss()
     
-    # 2. Instanciation et entraînement de l'auto-encodeur final si requis
+    # 2. Instanciation et entraînement de l'auto-encodeur final
     if use_ae:
         if entree == 'GM':
             ae_final = ConvolutionalAutoencoder(in_channels=Y_train.shape[1], latent_dim=latent_dim, device=device).to(device)
@@ -80,20 +83,32 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
             
         optimizer_ae = torch.optim.Adam(ae_final.parameters(), lr=1e-3)
         ae_final.train()
-        print(f"   -> Entraînement de l'Auto-encodeur final ({entree})...")
-        for _ in range(500): 
+        print(f"   -> Entraînement de l'Auto-encodeur final ({entree}) sur 500 époques ...")
+        
+        # Entraînement de l'AE
+        for epoch_ae in range(500): 
             optimizer_ae.zero_grad()
-            loss_ae = nn.MSELoss()(ae_final(Y_train), Y_train)
+            loss_ae = criterion(ae_final(Y_train), Y_train)
             loss_ae.backward()
             optimizer_ae.step()
-            
+                
         ae_final.eval()
         with torch.no_grad():
             Y_train_target = ae_final.encode(Y_train)
     else:
         Y_train_target = Y_train
 
-    # 3. Instanciation du modèle prédictif principal
+    # 3. Création du set de validation interne (80/20) pour le Scheduler du modèle principal
+    X_tr_np, X_val_np, Y_tr_np, Y_val_np = train_test_split(
+        X_train.cpu().numpy(), Y_train_target.cpu().numpy(), 
+        test_size=0.2, random_state=42
+    )
+    X_tr = torch.tensor(X_tr_np, dtype=torch.float32).to(device)
+    X_val = torch.tensor(X_val_np, dtype=torch.float32).to(device)
+    Y_tr = torch.tensor(Y_tr_np, dtype=torch.float32).to(device)
+    Y_val = torch.tensor(Y_val_np, dtype=torch.float32).to(device)
+
+    # 4. Instanciation du modèle prédictif principal
     if entree == 'GV':
         current_out = latent_dim if use_ae else Y_train.shape[1]
         model = TurbineMLP(X_train.shape[1], current_out, 
@@ -106,22 +121,53 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
                            n_layers=hparams['n_layers'], base_filters=hparams['base_filters'], 
                            dropout_rate=hparams['dropout_rate'], device=device).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
-    criterion = nn.MSELoss()
+    # Optimiseur avec L2 Regularization (weight_decay)
+    weight_decay = hparams.get('weight_decay', 0.0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'], weight_decay=weight_decay)
     
-    # 4. Entraînement Final
+    # Stratégie de réduction dynamique du pas d'apprentissage (Scheduler)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=20, min_lr=1e-6
+    )
+    
+    # 5. Entraînement Final du Modèle Principal (1000 époques complètes)
     epochs = 1000
-    model.train()
+    best_val_loss = float('inf')
+    best_model_weights = None
+    
     pbar = tqdm(range(epochs), desc=f"Training {model_name}")
+    
     for epoch in pbar:
+        # --- Phase d'entraînement ---
+        model.train()
         optimizer.zero_grad()
-        loss = criterion(model(X_train), Y_train_target)
+        loss = criterion(model(X_tr), Y_tr)
         loss.backward()
         optimizer.step()
+        
+        # --- Phase de validation (pour le Scheduler) ---
+        model.eval()
+        with torch.no_grad():
+            val_loss = criterion(model(X_val), Y_val).item()
+            
+        # Mise à jour du pas d'apprentissage
+        scheduler.step(val_loss)
+        
+        # Sauvegarde des meilleurs poids observés
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_weights = copy.deepcopy(model.state_dict())
+             
         if (epoch + 1) % 50 == 0:
-            pbar.set_postfix({"Loss": f"{loss.item():.6f}"})
-    
-    # 5. Inférence et Décodage
+            current_lr = optimizer.param_groups[0]['lr']
+            pbar.set_postfix({"Loss": f"{loss.item():.6f}", "Val": f"{val_loss:.6f}", "LR": f"{current_lr:.1e}"})
+            
+    # Restauration des meilleurs poids 
+    if best_model_weights is not None:
+        model.load_state_dict(best_model_weights)
+        print(f"   -> Meilleurs poids restaurés (Best Val Loss: {best_val_loss:.6f})")
+
+    # 6. Inférence et Décodage sur le jeu de TEST
     model.eval()
     with torch.no_grad(): 
         preds_raw = model(X_test)
@@ -136,12 +182,12 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
         else:
             preds_flat = preds_norm_out.cpu().numpy()
 
-    # 6. Dénormalisation
+    # 7. Dénormalisation
     with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f: 
         scaler_Y = pickle.load(f)
     preds_denorm = scaler_Y.inverse_transform(preds_flat)
     
-    # 7. Reconstruction et Métriques
+    # 8. Reconstruction et Métriques
     df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
     
     if inter == 'v':
@@ -159,7 +205,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     
     results_detail = {
         "Modele": f"{model_name} (AE: {use_ae})",
-        "Epochs": epochs,
+        "Epochs": epochs, # Toujours 1000
         "Score_Total_%": rel_fn + rel_ft,
         "RMSE_Fn_Rel_%": rel_fn,
         "RMSE_Ft_Rel_%": rel_ft,
