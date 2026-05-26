@@ -44,64 +44,72 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
                 v2 += row[c2_bem]
             records.append({
                 'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], 
-                f'{c1}_pred': v1, f'{c2}_pred': v2
+                f'{c1}_pred': v1, f'{c2}_pred': v2,
+                'Fn_SVEN': row['Fn_SVEN'], 'Ft_SVEN': row['Ft_SVEN']
             })
                 
     df_preds = pd.DataFrame(records)
-    return pd.merge(df_test, df_preds, on=['r', 'theta', 'yaw'])
+    return pd.merge(df_test, df_preds, on=['r', 'theta', 'yaw', 'Fn_SVEN', 'Ft_SVEN'])
 
 
-def evaluator(df_train, df_test, entree, residuelle, inter):
+def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_name = f"{entree}_{residuelle}_{inter}"
+    
+    # Prise en compte rigoureuse du suffixe
+    base_model_name = f"{entree}_{residuelle}_{inter}"
+    saved_name = f"{base_model_name}_{suffixe}"
     recap_path = "performance/recap_scores_globaux.csv"
     
-    print(f"--- Évaluation : {model_name} ({device}) ---")
+    print(f"\n{'='*50}")
+    print(f" RÉ-ENTRAÎNEMENT FINAL & ÉVALUATION : {saved_name}")
+    print(f"{'='*50}")
     
-    # 1. Chargement des hyperparamètres
-    hp_path = f"hyperparametres/{model_name}.json"
+    # 1. Chargement des hyperparamètres globaux
+    hp_path = f"hyperparametres/{saved_name}.json"
     if not os.path.exists(hp_path):
-        print(f"Erreur: Aucun hyperparamètre trouvé pour {model_name}")
+        print(f"   [ERREUR] Aucun hyperparamètre trouvé pour {saved_name} à l'adresse {hp_path}")
         return
     with open(hp_path, "r") as f: 
-        hparams = json.load(f)
+        best_params = json.load(f)
         
-    X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
+    X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=False, device=device)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
-    
-    ae_final = None
-    use_ae = hparams.get('use_autoencoder', False)
-    latent_dim = hparams.get('latent_dim', 64)
     criterion = nn.MSELoss()
     
-    # 2. Instanciation et entraînement de l'auto-encodeur final
+    # 2. Gestion de l'Auto-encodeur Pré-Calculé
+    use_ae = best_params.get('use_autoencoder', False) and suffixe != 'D0'
+    
     if use_ae:
-        if entree == 'GM':
-            ae_final = ConvolutionalAutoencoder(in_channels=Y_train.shape[1], latent_dim=latent_dim, device=device).to(device)
-        else:
-            ae_final = LinearAutoencoder(in_features=Y_train.shape[1], latent_dim=latent_dim, device=device).to(device)
-            
-        optimizer_ae = torch.optim.Adam(ae_final.parameters(), lr=1e-3)
-        ae_final.train()
-        print(f"   -> Entraînement de l'Auto-encodeur final ({entree}) sur 500 époques ...")
+        latent_dim = best_params['latent_dim']
+        ae_params_path = f"hyperparametres/ae_{saved_name}_params.json"
+        ae_weights_path = f"models/ae_{saved_name}.pth"
         
-        # Entraînement de l'AE
-        for epoch_ae in range(500): 
-            optimizer_ae.zero_grad()
-            loss_ae = criterion(ae_final(Y_train), Y_train)
-            loss_ae.backward()
-            optimizer_ae.step()
-                
-        ae_final.eval()
+        with open(ae_params_path, "r") as f:
+            ae_config = json.load(f)
+            
+        if entree == 'GM':
+            ae_model = ConvolutionalAutoencoder(
+                in_channels=Y_train.shape[1], latent_dim=latent_dim, 
+                depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device
+            ).to(device)
+        else:
+            ae_model = LinearAutoencoder(in_features=Y_train.shape[1], latent_dim=latent_dim, device=device).to(device)
+            
+        ae_model.load_state_dict(torch.load(ae_weights_path, map_location=device))
+        ae_model.eval()
+        
         with torch.no_grad():
-            Y_train_target = ae_final.encode(Y_train)
+            Y_train_target = ae_model.encode(Y_train)
+            Y_test_target = ae_model.encode(Y_test)
+        print(f"   [OK] AE rechargé depuis {ae_weights_path}")
     else:
         Y_train_target = Y_train
+        Y_test_target = Y_test
+        latent_dim = 0
 
-    # 3. Création du set de validation interne (80/20) pour le Scheduler du modèle principal
+    # 3. Création du set de validation interne (80/20) pour le Early Stopping / Scheduler
     X_tr_np, X_val_np, Y_tr_np, Y_val_np = train_test_split(
-        X_train.cpu().numpy(), Y_train_target.cpu().numpy(), 
-        test_size=0.2, random_state=42
+        X_train.cpu().numpy(), Y_train_target.cpu().numpy(), test_size=0.2, random_state=42
     )
     X_tr = torch.tensor(X_tr_np, dtype=torch.float32).to(device)
     X_val = torch.tensor(X_val_np, dtype=torch.float32).to(device)
@@ -112,84 +120,69 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     if entree == 'GV':
         current_out = latent_dim if use_ae else Y_train.shape[1]
         model = TurbineMLP(X_train.shape[1], current_out, 
-                           hparams['n_layers'], hparams['n_neurons'], 
-                           hparams['dropout_rate'], device=device).to(device)
-        
+                           best_params['n_layers'], best_params['n_neurons'], 
+                           best_params['dropout_rate'], device=device).to(device)
     elif entree == 'GM':
-        model = TurbineCNN(in_channels=X_train.shape[1], out_channels=Y_train.shape[1], 
+        target_dim = latent_dim if use_ae else Y_train.shape[1]
+        model = TurbineCNN(in_channels=X_train.shape[1], out_channels=target_dim, 
                            use_autoencoder=use_ae, latent_dim=latent_dim,
-                           n_layers=hparams['n_layers'], base_filters=hparams['base_filters'], 
-                           dropout_rate=hparams['dropout_rate'], device=device).to(device)
+                           n_layers=best_params['n_layers'], base_filters=best_params['base_filters'], 
+                           dropout_rate=best_params['dropout_rate'], device=device).to(device)
 
-    # Optimiseur avec L2 Regularization (weight_decay)
-    weight_decay = hparams.get('weight_decay', 0.0)
-    optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'], weight_decay=weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=best_params['lr'])
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, min_lr=1e-6)
     
-    # Stratégie de réduction dynamique du pas d'apprentissage (Scheduler)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=20, min_lr=1e-6
-    )
-    
-    # 5. Entraînement Final du Modèle Principal (1000 époques complètes)
+    # 5. Entraînement Final (1000 époques complètes)
     epochs = 1000
     best_val_loss = float('inf')
     best_model_weights = None
     
-    pbar = tqdm(range(epochs), desc=f"Training {model_name}")
-    
+    pbar = tqdm(range(epochs), desc=f"Training {saved_name}")
     for epoch in pbar:
-        # --- Phase d'entraînement ---
         model.train()
         optimizer.zero_grad()
         loss = criterion(model(X_tr), Y_tr)
         loss.backward()
         optimizer.step()
         
-        # --- Phase de validation (pour le Scheduler) ---
         model.eval()
         with torch.no_grad():
             val_loss = criterion(model(X_val), Y_val).item()
-            
-        # Mise à jour du pas d'apprentissage
         scheduler.step(val_loss)
         
-        # Sauvegarde des meilleurs poids observés
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_weights = copy.deepcopy(model.state_dict())
              
         if (epoch + 1) % 50 == 0:
-            current_lr = optimizer.param_groups[0]['lr']
-            pbar.set_postfix({"Loss": f"{loss.item():.6f}", "Val": f"{val_loss:.6f}", "LR": f"{current_lr:.1e}"})
+            pbar.set_postfix({"Loss": f"{loss.item():.6f}", "Val": f"{val_loss:.6f}"})
             
-    # Restauration des meilleurs poids 
     if best_model_weights is not None:
         model.load_state_dict(best_model_weights)
-        print(f"   -> Meilleurs poids restaurés (Best Val Loss: {best_val_loss:.6f})")
 
-    # 6. Inférence et Décodage sur le jeu de TEST
+    # 6. Inférence et Décompression Réseau
     model.eval()
     with torch.no_grad(): 
         preds_raw = model(X_test)
-        
-        if use_ae and ae_final is not None:
-            preds_norm_out = ae_final.decode(preds_raw)
+        if use_ae:
+            preds_norm_out = ae_model.decode(preds_raw)
         else:
             preds_norm_out = preds_raw
-            
-        if entree == 'GM' and not use_ae:
-            preds_flat = preds_norm_out.reshape(preds_norm_out.shape[0], -1).cpu().numpy()
-        else:
-            preds_flat = preds_norm_out.cpu().numpy()
+
+
+    preds_norm_np = preds_norm_out.cpu().numpy()
+    if entree == 'GM':
+        preds_flat = preds_norm_np.reshape(preds_norm_np.shape[0], -1)
+    else:
+        preds_flat = preds_norm_np
 
     # 7. Dénormalisation
-    with open(f"scalers/scaler_Y_{model_name}.pkl", 'rb') as f: 
+    with open(f"scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: 
         scaler_Y = pickle.load(f)
     preds_denorm = scaler_Y.inverse_transform(preds_flat)
     
-    # 8. Reconstruction et Métriques
+    # 8. Post-processing Physique et Enregistrement du Score
     df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
-    
     if inter == 'v':
         df_res['Fn_pred'], df_res['Ft_pred'] = convert_v_to_f(
             df_res['V_eff_pred'].values, df_res['alpha_pred'].values, df_res['r'].values
@@ -202,27 +195,33 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     rmse_ft = np.sqrt(np.mean((Ft_p - Ft_s)**2))
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
+    score_total = rel_fn + rel_ft
+    wd_score = wasserstein_distance(Fn_s, Fn_p) + wasserstein_distance(Ft_s, Ft_p)
     
     results_detail = {
-        "Modele": f"{model_name} (AE: {use_ae})",
-        "Epochs": epochs, # Toujours 1000
-        "Score_Total_%": rel_fn + rel_ft,
-        "RMSE_Fn_Rel_%": rel_fn,
-        "RMSE_Ft_Rel_%": rel_ft,
-        "Wass_Fn": wasserstein_distance(Fn_s, Fn_p),
-        "Wass_Ft": wasserstein_distance(Ft_s, Ft_p)
+        "Modele": saved_name, "Strat_Entree": entree, "Residuelle": residuelle, "Intermediaire": inter, "Suffixe": suffixe,
+        "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
+        "Total_Score (%)": round(score_total, 2), "Wasserstein_Dist": round(wd_score, 4)
     }
     
     os.makedirs("performance", exist_ok=True)
     if os.path.exists(recap_path):
         df_recap = pd.read_csv(recap_path)
-        df_recap = df_recap[~df_recap["Modele"].str.startswith(model_name)]
+        df_recap = df_recap[df_recap["Modele"] != saved_name]
         df_recap = pd.concat([df_recap, pd.DataFrame([results_detail])], ignore_index=True)
     else:
         df_recap = pd.DataFrame([results_detail])
-        
     df_recap.to_csv(recap_path, index=False)
-    print(f"   Score ajouté au récapitulatif. Erreur Totale: {rel_fn + rel_ft:.2f}%")
+    
+    print(f"   Score ajouté au récapitulatif global. Erreur Totale: {score_total:.2f}%")
+
+    # SAUVEGARDE CONDITIONNELLE EN PTH SI LE SCORE EST < 16%
+    if score_total < 16.0:
+        model_save_path = f"models/model_{saved_name}.pth"
+        torch.save(model.state_dict(), model_save_path)
+        print(f"   [SAUVEGARDE] Performance excellente ({score_total:.2f}% < 16%). Modèle enregistré dans {model_save_path}")
+    else:
+        print(f"   [INFO] Score de {score_total:.2f}% >= 16%. Le fichier .pth final n'a pas été conservé.")
 
 
 def evaluate_baselines(df_test):
@@ -236,17 +235,21 @@ def evaluate_baselines(df_test):
     
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
-    
-    recap_data = {
-        "Modele": "Baseline_BEM_Pure",
-        "Epochs": 0,
-        "Score_Total_%": rel_fn + rel_ft,
-        "RMSE_Fn_Rel_%": rel_fn,
-        "RMSE_Ft_Rel_%": rel_ft,
-        "Wass_Fn": wasserstein_distance(Fn_s, Fn_b),
-        "Wass_Ft": wasserstein_distance(Ft_s, Ft_b)
+    score_total = rel_fn + rel_ft
+
+    results_detail = {
+        "Modele": "BASELINE_BEM", "Strat_Entree": "BEM", "Residuelle": "-", "Intermediaire": "-", "Suffixe": "-",
+        "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
+        "Total_Score (%)": round(score_total, 2), "Wasserstein_Dist": -1.0
     }
     
     os.makedirs("performance", exist_ok=True)
-    pd.DataFrame([recap_data]).to_csv("performance/recap_scores_globaux.csv", index=False)
-    print(f"   Baseline BEM enregistrée. Score: {rel_fn + rel_ft:.2f}%")
+    recap_path = "performance/recap_scores_globaux.csv"
+    if os.path.exists(recap_path):
+        df_recap = pd.read_csv(recap_path)
+        df_recap = df_recap[df_recap["Modele"] != "BASELINE_BEM"]
+        df_recap = pd.concat([df_recap, pd.DataFrame([results_detail])], ignore_index=True)
+    else:
+        df_recap = pd.DataFrame([results_detail])
+    df_recap.to_csv(recap_path, index=False)
+    print(f"   Baseline BEM enregistrée. Score : {score_total:.2f}%")

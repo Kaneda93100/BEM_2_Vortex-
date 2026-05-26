@@ -8,133 +8,119 @@ from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAuto
 from .data_loader import format_data
 from tqdm import tqdm
 
-def optimize(df_train, entree, residuelle, inter, n_trials=50):
+def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_name = f"{entree}_{residuelle}_{inter}"
+    base_model_name = f"{entree}_{residuelle}_{inter}"
+    saved_name = f"{base_model_name}_{suffixe}"
+    
     os.makedirs("hyperparametres", exist_ok=True)
     
-    # Formatage sur tout le jeu d'entraînement
-    X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
-    in_dim = X_full.shape[1] 
-    out_dim = Y_full.shape[1] 
+    print(f"\n{'='*50}")
+    print(f" OPTIMISATION MODÈLE PRÉDICTIF : {saved_name}")
+    print(f"{'='*50}")
     
-    def objective(trial):
-        # --- CONFIGURATION DES HYPERPARAMÈTRES ---
-        if entree == 'GV':
-            n_layers = trial.suggest_int('n_layers', 2, 7)     
-            n_neurons = trial.suggest_int('n_neurons', 128, 1024, step=64)
-            
-            use_ae = trial.suggest_categorical('use_autoencoder', [True, False])
-            latent_dim = trial.suggest_categorical('latent_dim', [32, 64, 128, 256]) if use_ae else 0
-            
-        elif entree == 'GM':
-            n_layers = trial.suggest_int('n_layers', 3, 8)     
-            base_filters = trial.suggest_categorical('base_filters', [32, 64, 128])
-            
-            use_ae = trial.suggest_categorical('use_autoencoder', [True, False])
-            latent_dim = trial.suggest_categorical('latent_dim', [32, 64, 128, 256]) if use_ae else 0
-            
-        # Régularisation globale
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        lr = trial.suggest_float('lr', 1e-4, 1e-2, log=True)
-        weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
+    X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
+    criterion = nn.MSELoss()
+    
+    # --- 1. Gestion du Suffixe et Chargement de l'Auto-encodeur ---
+    if suffixe == 'D0':
+        use_ae = False
+        latent_dim = 0
+        ae_params = {"use_autoencoder": False, "latent_dim": 0}
+        Y_train_target = Y_full
+    else:
+        ae_params_path = f"hyperparametres/ae_{saved_name}_params.json"
+        ae_weights_path = f"models/ae_{saved_name}.pth" 
         
+        use_ae = os.path.exists(ae_params_path) and os.path.exists(ae_weights_path)
+        
+        if use_ae:
+            with open(ae_params_path, "r") as f:
+                ae_params = json.load(f)
+            latent_dim = ae_params['latent_dim']
+            
+            # Reconstruction de l'AE pour projeter Y_full dans l'espace latent
+            if entree == 'GM':
+                ae_model = ConvolutionalAutoencoder(in_channels=Y_full.shape[1], latent_dim=latent_dim,
+                                                    depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device)
+            else:
+                ae_model = LinearAutoencoder(in_features=Y_full.shape[1], latent_dim=latent_dim, device=device).to(device)
+                
+            ae_model.load_state_dict(torch.load(ae_weights_path, map_location=device))
+            ae_model.eval()
+            with torch.no_grad():
+                Y_train_target = ae_model.encode(Y_full)
+            print(f"   -> AE chargé avec succès. Espace latent : {latent_dim} dimensions.")
+        else:
+            print(f"   [ATTENTION] AE requis ({saved_name}) mais introuvable. Mode sans AE forcé.")
+            use_ae = False
+            latent_dim = 0
+            ae_params = {"use_autoencoder": False, "latent_dim": 0}
+            Y_train_target = Y_full
+
+    # --- 2. Objectif Optuna pour le Modèle Prédictif ---
+    def objective_model(trial):
+        # Hyperparamètres communs
+        lr = trial.suggest_float('lr', 1e-4, 5e-3, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.0, 0.4)
+        n_layers = trial.suggest_int('n_layers', 2, 5)
+        
+        if entree == 'GV':
+            n_neurons = trial.suggest_int('n_neurons', 128, 512, step=64)
+        elif entree == 'GM':
+            base_filters = trial.suggest_categorical('base_filters', [16, 32, 64])
+
+        # Cross-validation (3 Folds)
         kf = KFold(n_splits=3, shuffle=True, random_state=42)
         cv_scores = []
-        criterion = nn.MSELoss()
         
-        for fold, (train_idx, val_idx) in enumerate(kf.split(range(len(X_full)))):
-            X_tr, Y_tr = X_full[train_idx], Y_full[train_idx]
-            X_val, Y_val = X_full[val_idx], Y_full[val_idx]
+        for fold, (train_idx, val_idx) in enumerate(kf.split(X_full.cpu().numpy())):
+            X_tr = X_full[train_idx]
+            Y_tr = Y_train_target[train_idx]
+            X_val = X_full[val_idx]
+            Y_val = Y_train_target[val_idx]
             
-            # ==========================================
-            # 1. ENTRAÎNEMENT DE L'AUTO-ENCODEUR (Pré-traitement)
-            # ==========================================
-            if use_ae:
-                if entree == 'GM':
-                    cae = ConvolutionalAutoencoder(in_channels=out_dim, latent_dim=latent_dim, device=device).to(device)
-                else:
-                    cae = LinearAutoencoder(in_features=out_dim, latent_dim=latent_dim, device=device).to(device)
-                    
-                optimizer_ae = torch.optim.Adam(cae.parameters(), lr=1e-3)
-                cae.train()
-                
-                # Entraînement de l'AE 
-                for epoch_ae in range(400): 
-                    optimizer_ae.zero_grad()
-                    loss_ae = criterion(cae(Y_tr), Y_tr)
-                    loss_ae.backward()
-                    optimizer_ae.step()
-                    
-                cae.eval()
-                with torch.no_grad():
-                    Y_tr_target = cae.encode(Y_tr)
-                    Y_val_target = cae.encode(Y_val)
-            else:
-                # Mode fonction identité
-                Y_tr_target, Y_val_target = Y_tr, Y_val
-            
-            # ==========================================
-            # 2. ENTRAÎNEMENT DU MODÈLE PRÉDICTIF PRINCIPAL
-            # ==========================================
             if entree == 'GV':
-                current_out = latent_dim if use_ae else out_dim
-                model = TurbineMLP(in_dim, current_out, n_layers, n_neurons, dropout_rate, device=device).to(device)
+                current_out = latent_dim if use_ae else Y_full.shape[1]
+                model = TurbineMLP(X_full.shape[1], current_out, n_layers, n_neurons, dropout_rate, device=device).to(device)
             elif entree == 'GM':
-                model = TurbineCNN(in_channels=in_dim, out_channels=out_dim, 
+                target_dim = latent_dim if use_ae else Y_full.shape[1]
+                model = TurbineCNN(in_channels=X_full.shape[1], out_channels=target_dim, 
                                    use_autoencoder=use_ae, latent_dim=latent_dim,
-                                   n_layers=n_layers, base_filters=base_filters, 
-                                   dropout_rate=dropout_rate, device=device).to(device)
-
-            # Optimiseur avec L2 Regularization (weight_decay)
-            optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+                                   n_layers=n_layers, base_filters=base_filters, dropout_rate=dropout_rate, device=device).to(device)
+                
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=15)
             
-            # Le Scheduler
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode='min', factor=0.5, patience=15, min_lr=1e-6
-            )
-            
-            epochs = 500 
             best_val_loss = float('inf')
-            
-            pbar = tqdm(range(epochs), desc=f"Trial {trial.number} | Fold {fold+1}/3", leave=False)
-            
-            for epoch in pbar:
-                # --- Phase d'entraînement ---
+
+            for epoch in range(150):
                 model.train()
                 optimizer.zero_grad()
-                loss = criterion(model(X_tr), Y_tr_target) 
+                loss = criterion(model(X_tr), Y_tr) 
                 loss.backward()
                 optimizer.step()
                 
-                # --- Phase de validation ---
                 model.eval()
                 with torch.no_grad():
-                    val_loss = criterion(model(X_val), Y_val_target).item()
-                
-                # Le scheduler ajuste le LR si la val_loss stagne
+                    val_loss = criterion(model(X_val), Y_val).item()
                 scheduler.step(val_loss)
                 
-                # On sauvegarde en mémoire la meilleure performance absolue atteinte
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                
-                if (epoch + 1) % 10 == 0:
-                    current_lr = optimizer.param_groups[0]['lr']
-                    pbar.set_postfix({"Loss_Tr": f"{loss.item():.6f}", "Loss_Val": f"{val_loss:.6f}", "LR": f"{current_lr:.1e}"})
-                
-            # Optuna reçoit la meilleure perte de validation atteinte durant les 500 époques
+                    
             cv_scores.append(best_val_loss)
             
         return sum(cv_scores) / len(cv_scores)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    study = optuna.create_study(direction='minimize')
+    study_model = optuna.create_study(direction='minimize')
+    study_model.optimize(objective_model, n_trials=n_trials, show_progress_bar=True)
     
-    print(f"   Démarrage de l'optimisation ({n_trials} trials)...")
-    study.optimize(objective, n_trials=n_trials)
+    # --- 3. Fusion et Sauvegarde des Hyperparamètres ---
+    final_params = {**ae_params, **study_model.best_params}
     
-    with open(f"hyperparametres/{model_name}.json", "w") as f:
-        json.dump(study.best_params, f, indent=4)
+    with open(f"hyperparametres/{saved_name}.json", "w") as f:
+        json.dump(final_params, f, indent=4)
         
-    print(f"   Modèle {model_name} optimisé. Best CV MSE: {study.best_value:.6f}")
+    print(f"   [OK] Modèle {saved_name} optimisé. Meilleure CV MSE : {study_model.best_value:.6f}")
