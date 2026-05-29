@@ -29,6 +29,8 @@ __pycache__/
 venv/
 .env
 
+DataSet/pca.py
+debug_dl.py
 
 
 .vscode/
