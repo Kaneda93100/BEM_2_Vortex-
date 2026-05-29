@@ -2,7 +2,13 @@ import time
 from src.data_loader import load_clean_data, get_splits
 from src.optimize import optimize
 from src.evaluate import evaluator,evaluate_baselines
+import pathlib as P
 
+path_speed  = P.Path('DataSet/vitesses_BEM_SVEN.csv')
+path_forces = P.Path('DataSet/forces_BEM_SVEN.csv')
+
+import pandas as pd
+df = pd.read_csv(path_forces)
 
 def format_duration(seconds):
     """Transforme des secondes en un format lisible."""
@@ -19,15 +25,15 @@ def main():
     
     # 1. Chargement global une seule fois en mémoire
     print("Chargement des données...")
-    df_full = load_clean_data()
+    df_full = load_clean_data(path_forces = path_forces, path_vitesses = path_speed)
    
     df_full = load_clean_data()
     evaluate_baselines(df_full)
 
     # 2. Les stratégies à explorer
-    entrees = ['L', 'GR', 'GA','G']
+    entrees = ['L', 'GR', 'GA', 'G']
     residuelles = ['0', '1']
-    inters = ['f', 'v']
+    inters = ['f']
     
     # 3. Boucles d'expérimentation
     for e in entrees:
@@ -48,14 +54,14 @@ def main():
                 # --- PHASE 1 : OPTIMISATION ---
                 print(f"   [1/2] Optimisation Optuna en cours...")
                 opt_start = time.time()
-                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=2)
+                optimize(df_train, entree=e, residuelle=r, inter=i, n_trials=150)
                 opt_duration = time.time() - opt_start
                 print(f"   >> Temps Optimisation : {format_duration(opt_duration)}")
                 
                 # --- PHASE 2 : ÉVALUATION ---
                 print(f"   [2/2] Ré-entraînement final et évaluation...")
                 eval_start = time.time()
-                evaluator(df_train, df_test, entree=e, residuelle=r, inter=i)
+                evaluator(df_train, df_test, entree=e, residuelle=r, inter=i, ponderate = True)
                 eval_duration = time.time() - eval_start
                 print(f"   >> Temps Évaluation : {format_duration(eval_duration)}")
                 

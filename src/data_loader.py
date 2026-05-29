@@ -108,7 +108,7 @@ def get_splits(df, entree, seed = 42, test_size = 0.2, save_dir = None) :
     return train_full, val_full
 
 
-def format_data(df, entree, res, inter, is_train, device = 'cpu', ponderate = False):
+def format_data(df, entree, res, inter, is_train = True, device = 'cpu', ponderate = False):
     """
     On conserve l'idée des plusieurs stratégies (inter,direct) x (bem,no_bem)
     """

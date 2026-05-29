@@ -76,7 +76,7 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
 
     return pd.merge(df_test, df_preds, on=['r', 'theta', 'yaw'])
 
-def evaluator(df_train, df_test, entree, residuelle, inter):
+def evaluator(df_train, df_test, entree, residuelle, inter, ponderate = False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_name = f"{entree}_{residuelle}_{inter}"
     print(f"--- Évaluation : {model_name} ({device}) ---")
@@ -87,8 +87,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter):
     with open(hp_path, "r") as f: hparams = json.load(f)
         
     # 2. Données (100% pour l'entraînement, pas de split)
-    X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter, is_train=True)
-    X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False)
+    X_full_train, Y_full_train = format_data(df_train, entree, residuelle, inter, is_train=True, ponderate = ponderate)
+    X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, ponderate = ponderate)
     
     X_full_train_dev = X_full_train.to(device)
     Y_full_train_dev = Y_full_train.to(device)
