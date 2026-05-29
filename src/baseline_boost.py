@@ -22,15 +22,19 @@ from .physics import convert_v_to_f
 from .evaluate import reconstruct_predictions
 
 def optimize_lgbm(X_train, Z_train, saved_name, n_trials=50):
-    """ Optimise et SAUVEGARDE les hyperparamètres de LightGBM pour l'espace latent Z """
-    # Enregistrement dans le dossier hyperparametres/
-    hp_path = f"hyperparametres/lgbm_{saved_name}_hp.json"
+    """ Optimise et SAUVEGARDE les hyperparamètres de LightGBM dans le dictionnaire centralisé """
+    os.makedirs("hyperparametres", exist_ok=True)
+    hp_master_path = "hyperparametres/lgbm_hyperparameters.json"
     
-    # Si les hyperparamètres existent, on les charge 
-    if os.path.exists(hp_path):
-        print(f"      -> Chargement des hyperparamètres depuis : {hp_path}")
-        with open(hp_path, "r") as f:
-            return json.load(f)
+    # Si le dictionnaire global existe et contient déjà notre modèle, on le charge
+    if os.path.exists(hp_master_path):
+        with open(hp_master_path, "r") as f:
+            all_lgbm_hps = json.load(f)
+        if saved_name in all_lgbm_hps:
+            print(f"      -> Chargement des hyperparamètres depuis : {hp_master_path}")
+            return all_lgbm_hps[saved_name]
+    else:
+        all_lgbm_hps = {}
             
     def objective(trial):
         params = {
@@ -59,11 +63,12 @@ def optimize_lgbm(X_train, Z_train, saved_name, n_trials=50):
     
     best_params = study.best_params
     
-    os.makedirs("hyperparametres", exist_ok=True)
-    with open(hp_path, "w") as f:
-        json.dump(best_params, f, indent=4)
+    # Mise à jour et sauvegarde dans le dictionnaire centralisé
+    all_lgbm_hps[saved_name] = best_params
+    with open(hp_master_path, "w") as f:
+        json.dump(all_lgbm_hps, f, indent=4)
         
-    print(f"      -> Nouveaux hyperparamètres sauvegardés dans {hp_path}")
+    print(f"      -> Paramètres ajoutés au dictionnaire {hp_master_path}")
     return best_params
 
 
@@ -75,10 +80,11 @@ def train_latent_boosting(df_train, df_test, entree='GV', residuelle=1, inter='f
     boost_name = f"{saved_name}_LightGBM_Latent"
     
     recap_path = "performance/recap_scores_globaux.csv"
-    ae_weights_path = f"models/ae_{saved_name}.pth"
-    boost_model_path = f"models/model_{boost_name}.pkl"
     
-    os.makedirs("models", exist_ok=True)
+
+    ae_weights_path = f"models/ae/ae_{saved_name}.pth"
+    os.makedirs("models/LightGBM", exist_ok=True)
+    boost_model_path = f"models/LightGBM/model_{boost_name}.pkl"
     
     print(f"\n{'='*50}")
     print(f" RUN LATENT BOOSTING : {boost_name}")
@@ -88,7 +94,7 @@ def train_latent_boosting(df_train, df_test, entree='GV', residuelle=1, inter='f
     X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
     
-    # 2. Chargement AE
+    # 2. Chargement AE 
     if not os.path.exists(ae_weights_path):
         print(f"      [ERREUR] Impossible de trouver l'AE pré-calculé à l'adresse : {ae_weights_path}")
         print("      Assure-toi d'exécuter la phase optimize_and_train_ae avant.")
@@ -111,7 +117,6 @@ def train_latent_boosting(df_train, df_test, entree='GV', residuelle=1, inter='f
         with open(boost_model_path, "rb") as f:
             booster = pickle.load(f)
     else:
-
         best_params = optimize_lgbm(X_train_np, Z_train, saved_name, n_trials=50) 
         
         booster = MultiOutputRegressor(LGBMRegressor(**best_params, verbose=-1))
@@ -176,7 +181,7 @@ def train_latent_boosting(df_train, df_test, entree='GV', residuelle=1, inter='f
     df_recap.to_csv(recap_path, index=False)
     print(f"   Score ajouté au récapitulatif global. Erreur Totale : {score_total:.2f}%")
     
-    # Sauvegarde conditionnelle du modèle d'arbres à 16%
+    # Sauvegarde conditionnelle du modèle d'arbres à 16% dans le sous-dossier dédié
     if score_total < 16.0:
         with open(boost_model_path, "wb") as f:
             pickle.dump(booster, f)

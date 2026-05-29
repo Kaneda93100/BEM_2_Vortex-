@@ -7,7 +7,6 @@ import torch.nn as nn
 import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
-from sklearn.model_selection import train_test_split
 from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder
 from .data_loader import format_data
 from .physics import convert_v_to_f
@@ -55,7 +54,6 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
 def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Prise en compte rigoureuse du suffixe
     base_model_name = f"{entree}_{residuelle}_{inter}"
     saved_name = f"{base_model_name}_{suffixe}"
     recap_path = "performance/recap_scores_globaux.csv"
@@ -64,13 +62,20 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     print(f" RÉ-ENTRAÎNEMENT FINAL & ÉVALUATION : {saved_name}")
     print(f"{'='*50}")
     
-    # 1. Chargement des hyperparamètres globaux
-    hp_path = f"hyperparametres/{saved_name}.json"
+    # 1. Chargement des hyperparamètres globaux depuis le dictionnaire correspondant
+    hp_path = f"hyperparametres/{entree.lower()}_hyperparameters.json"
     if not os.path.exists(hp_path):
-        print(f"   [ERREUR] Aucun hyperparamètre trouvé pour {saved_name} à l'adresse {hp_path}")
+        print(f"   [ERREUR] Aucun fichier d'hyperparamètres trouvé à l'adresse {hp_path}")
         return
-    with open(hp_path, "r") as f: 
-        best_params = json.load(f)
+        
+    with open(hp_path, "r") as f:
+        all_hps = json.load(f)
+        
+    if saved_name not in all_hps:
+        print(f"   [ERREUR] Modèle {saved_name} introuvable dans {hp_path}")
+        return
+        
+    best_params = all_hps[saved_name]
         
     X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=False, device=device)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
@@ -81,11 +86,12 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     
     if use_ae:
         latent_dim = best_params['latent_dim']
-        ae_params_path = f"hyperparametres/ae_{saved_name}_params.json"
-        ae_weights_path = f"models/ae_{saved_name}.pth"
+        ae_params_path = "hyperparametres/ae_hyperparameters.json"
+        ae_weights_path = f"models/ae/ae_{saved_name}.pth"
         
         with open(ae_params_path, "r") as f:
-            ae_config = json.load(f)
+            ae_configs = json.load(f)
+        ae_config = ae_configs[saved_name]
             
         if entree == 'GM':
             ae_model = ConvolutionalAutoencoder(
@@ -107,14 +113,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         Y_test_target = Y_test
         latent_dim = 0
 
-    # 3. Création du set de validation interne (80/20) pour le Early Stopping / Scheduler
-    X_tr_np, X_val_np, Y_tr_np, Y_val_np = train_test_split(
-        X_train.cpu().numpy(), Y_train_target.cpu().numpy(), test_size=0.2, random_state=42
-    )
-    X_tr = torch.tensor(X_tr_np, dtype=torch.float32).to(device)
-    X_val = torch.tensor(X_val_np, dtype=torch.float32).to(device)
-    Y_tr = torch.tensor(Y_tr_np, dtype=torch.float32).to(device)
-    Y_val = torch.tensor(Y_val_np, dtype=torch.float32).to(device)
+    # 3. Utilisation de l'intégralité du dataset d'entraînement
+    X_tr = X_train
+    Y_tr = Y_train_target
 
     # 4. Instanciation du modèle prédictif principal
     if entree == 'GV':
@@ -129,12 +130,12 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                            n_layers=best_params['n_layers'], base_filters=best_params['base_filters'], 
                            dropout_rate=best_params['dropout_rate'], device=device).to(device)
 
+    # Entraînement 
     optimizer = torch.optim.Adam(model.parameters(), lr=best_params['lr'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, min_lr=1e-6)
     
     # 5. Entraînement Final (1000 époques complètes)
     epochs = 1000
-    best_val_loss = float('inf')
+    best_train_loss = float('inf')
     best_model_weights = None
     
     pbar = tqdm(range(epochs), desc=f"Training {saved_name}")
@@ -145,18 +146,17 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         loss.backward()
         optimizer.step()
         
-        model.eval()
-        with torch.no_grad():
-            val_loss = criterion(model(X_val), Y_val).item()
-        scheduler.step(val_loss)
+        current_loss = loss.item()
         
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # Conservation des meilleurs poids d'entraînement
+        if current_loss < best_train_loss:
+            best_train_loss = current_loss
             best_model_weights = copy.deepcopy(model.state_dict())
              
         if (epoch + 1) % 50 == 0:
-            pbar.set_postfix({"Loss": f"{loss.item():.6f}", "Val": f"{val_loss:.6f}"})
+            pbar.set_postfix({"Loss": f"{current_loss:.6f}"})
             
+    # Restauration des meilleurs poids trouvés
     if best_model_weights is not None:
         model.load_state_dict(best_model_weights)
 
@@ -169,7 +169,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         else:
             preds_norm_out = preds_raw
 
-
+    # Aplatissement systématique avant passage dans le Scaler
     preds_norm_np = preds_norm_out.cpu().numpy()
     if entree == 'GM':
         preds_flat = preds_norm_np.reshape(preds_norm_np.shape[0], -1)
@@ -215,9 +215,11 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     
     print(f"   Score ajouté au récapitulatif global. Erreur Totale: {score_total:.2f}%")
 
-    # SAUVEGARDE CONDITIONNELLE EN PTH SI LE SCORE EST < 16%
+    # SAUVEGARDE CONDITIONNELLE EN PTH
     if score_total < 16.0:
-        model_save_path = f"models/model_{saved_name}.pth"
+        os.makedirs(f"models/{entree}", exist_ok=True)
+        model_save_path = f"models/{entree}/model_{saved_name}.pth"
+        
         torch.save(model.state_dict(), model_save_path)
         print(f"   [SAUVEGARDE] Performance excellente ({score_total:.2f}% < 16%). Modèle enregistré dans {model_save_path}")
     else:

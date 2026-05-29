@@ -14,16 +14,15 @@ def optimize_and_train_ae(df_train, entree, residuelle, inter, latent_dim, n_tri
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-
     suffixe = f"D{latent_dim}"
     base_model_name = f"{entree}_{residuelle}_{inter}"
     saved_name = f"{base_model_name}_{suffixe}"
     
     os.makedirs("hyperparametres", exist_ok=True)
-    os.makedirs("models", exist_ok=True)
+    os.makedirs("models/ae", exist_ok=True)
     
-    # CORRECTION : Vérification de l'existence des poids directement dans le dossier 'models/'
-    ae_weights_path = f"models/ae_{saved_name}.pth"
+    # Vérification de l'existence des poids directement dans le dossier 'models/ae/'
+    ae_weights_path = f"models/ae/ae_{saved_name}.pth"
     if os.path.exists(ae_weights_path):
         print(f"   [INFO] Auto-encodeur {saved_name} déjà existant dans 'models/'. Entraînement ignoré.")
         return
@@ -97,14 +96,24 @@ def optimize_and_train_ae(df_train, entree, residuelle, inter, latent_dim, n_tri
         if (epoch + 1) % 50 == 0:
             pbar.set_postfix({"Loss": f"{loss.item():.6f}"})
 
-    # --- CORRECTION DES SAUVEGARDES ---
-    # 1. Enregistrement du fichier de configuration JSON dans le dossier 'hyperparametres/'
-    json_save_path = f"hyperparametres/ae_{saved_name}_params.json"
-    with open(json_save_path, "w") as f:
-        json.dump(best_ae_params, f, indent=4)
+    # --- Fichier JSON Global ---
+    json_master_path = "hyperparametres/ae_hyperparameters.json"
+    
+    # Charger le dictionnaire existant ou en créer un nouveau
+    if os.path.exists(json_master_path):
+        with open(json_master_path, "r") as f:
+            all_ae_params = json.load(f)
+    else:
+        all_ae_params = {}
         
-    # 2. Enregistrement du fichier de poids .pth dans le dossier 'models/'
+    # Ajouter/Mettre à jour les paramètres pour ce modèle précis
+    all_ae_params[saved_name] = best_ae_params
+    
+    with open(json_master_path, "w") as f:
+        json.dump(all_ae_params, f, indent=4)
+        
+    # Enregistrement du fichier de poids .pth dans le dossier 'models/'
     torch.save(final_ae.state_dict(), ae_weights_path)
     
-    print(f"   [OK] Hyperparamètres AE sauvegardés dans {json_save_path}")
+    print(f"   [OK] Hyperparamètres ajoutés au dictionnaire {json_master_path}")
     print(f"   [OK] Poids de l'AE sauvegardés dans {ae_weights_path} (Loss finale : {loss.item():.6f})")

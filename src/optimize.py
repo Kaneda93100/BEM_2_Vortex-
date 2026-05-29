@@ -22,38 +22,43 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
     criterion = nn.MSELoss()
     
-    # --- 1. Gestion du Suffixe et Chargement de l'Auto-encodeur ---
+    # --- 1. Gestion du Suffixe et Chargement de l'Auto-encodeur depuis le JSON global ---
     if suffixe == 'D0':
         use_ae = False
         latent_dim = 0
         ae_params = {"use_autoencoder": False, "latent_dim": 0}
         Y_train_target = Y_full
     else:
-        ae_params_path = f"hyperparametres/ae_{saved_name}_params.json"
-        ae_weights_path = f"models/ae_{saved_name}.pth" 
+        ae_master_path = "hyperparametres/ae_hyperparameters.json"
+        ae_weights_path = f"models/ae/ae_{saved_name}.pth"
         
-        use_ae = os.path.exists(ae_params_path) and os.path.exists(ae_weights_path)
+        use_ae = os.path.exists(ae_master_path) and os.path.exists(ae_weights_path)
         
         if use_ae:
-            with open(ae_params_path, "r") as f:
-                ae_params = json.load(f)
-            latent_dim = ae_params['latent_dim']
-            
-            # Reconstruction de l'AE pour projeter Y_full dans l'espace latent
-            if entree == 'GM':
-                ae_model = ConvolutionalAutoencoder(in_channels=Y_full.shape[1], latent_dim=latent_dim,
-                                                    depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device)
-            else:
-                ae_model = LinearAutoencoder(in_features=Y_full.shape[1], latent_dim=latent_dim, device=device).to(device)
+            with open(ae_master_path, "r") as f:
+                all_ae_params = json.load(f)
                 
-            ae_model.load_state_dict(torch.load(ae_weights_path, map_location=device))
-            ae_model.eval()
-            with torch.no_grad():
-                Y_train_target = ae_model.encode(Y_full)
-            print(f"   -> AE chargé avec succès. Espace latent : {latent_dim} dimensions.")
-        else:
-            print(f"   [ATTENTION] AE requis ({saved_name}) mais introuvable. Mode sans AE forcé.")
-            use_ae = False
+            if saved_name in all_ae_params:
+                ae_params = all_ae_params[saved_name]
+                latent_dim = ae_params['latent_dim']
+                
+                # Reconstruction de l'AE pour projeter Y_full dans l'espace latent
+                if entree == 'GM':
+                    ae_model = ConvolutionalAutoencoder(in_channels=Y_full.shape[1], latent_dim=latent_dim,
+                                                        depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device)
+                else:
+                    ae_model = LinearAutoencoder(in_features=Y_full.shape[1], latent_dim=latent_dim, device=device).to(device)
+                    
+                ae_model.load_state_dict(torch.load(ae_weights_path, map_location=device))
+                ae_model.eval()
+                with torch.no_grad():
+                    Y_train_target = ae_model.encode(Y_full)
+                print(f"   -> AE chargé avec succès. Espace latent : {latent_dim} dimensions.")
+            else:
+                use_ae = False
+                
+        if not use_ae:
+            print(f"   [ATTENTION] AE requis ({saved_name}) mais introuvable dans le master JSON ou models/. Mode sans AE forcé.")
             latent_dim = 0
             ae_params = {"use_autoencoder": False, "latent_dim": 0}
             Y_train_target = Y_full
@@ -70,7 +75,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         elif entree == 'GM':
             base_filters = trial.suggest_categorical('base_filters', [16, 32, 64])
 
-        # Cross-validation (3 Folds)
+        # Cross-validation
         kf = KFold(n_splits=3, shuffle=True, random_state=42)
         cv_scores = []
         
@@ -90,8 +95,6 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                                    n_layers=n_layers, base_filters=base_filters, dropout_rate=dropout_rate, device=device).to(device)
                 
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=15)
-            
             best_val_loss = float('inf')
 
             for epoch in range(150):
@@ -104,7 +107,6 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                 model.eval()
                 with torch.no_grad():
                     val_loss = criterion(model(X_val), Y_val).item()
-                scheduler.step(val_loss)
                 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -117,10 +119,21 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     study_model = optuna.create_study(direction='minimize')
     study_model.optimize(objective_model, n_trials=n_trials, show_progress_bar=True)
     
-    # --- 3. Fusion et Sauvegarde des Hyperparamètres ---
+    # --- 3. Sauvegarde dans les dictionnaires (GV ou GM) ---
     final_params = {**ae_params, **study_model.best_params}
     
-    with open(f"hyperparametres/{saved_name}.json", "w") as f:
-        json.dump(final_params, f, indent=4)
+    target_json = f"hyperparametres/{entree.lower()}_hyperparameters.json"
+    
+    if os.path.exists(target_json):
+        with open(target_json, "r") as f:
+            all_model_params = json.load(f)
+    else:
+        all_model_params = {}
+        
+    all_model_params[saved_name] = final_params
+    
+    with open(target_json, "w") as f:
+        json.dump(all_model_params, f, indent=4)
         
     print(f"   [OK] Modèle {saved_name} optimisé. Meilleure CV MSE : {study_model.best_value:.6f}")
+    print(f"   [OK] Paramètres ajoutés au dictionnaire {target_json}")
