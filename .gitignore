@@ -32,10 +32,10 @@ venv/
 DataSet/pca.py
 debug_dl.py
 
-
+DataSet/2/*
 .vscode/
 .idea/
 .DS_Store
 
-
+preprocess.py
 test.py

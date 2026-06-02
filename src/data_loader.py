@@ -274,7 +274,6 @@ def format_data(df, entree, res, inter, is_train = True, device = 'cpu', pondera
         X_scaled = scaler_X.transform(X_np)
         Y_scaled = scaler_Y.transform(Y_np)    
 
-
     return torch.tensor(X_scaled, dtype=torch.float32, device = device), torch.tensor(Y_scaled, dtype=torch.float32, device = device)
 
 # jolie fonction mais vaut mieux utiliser DataLoader directement dans les autres fichiers à chaque fois que t'en as besoin. 
