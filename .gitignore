@@ -33,3 +33,5 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+pca.py
+test.py

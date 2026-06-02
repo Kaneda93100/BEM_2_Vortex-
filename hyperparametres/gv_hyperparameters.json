@@ -1,0 +1,178 @@
+{
+    "GV_0_f_D0": {
+        "use_autoencoder": false,
+        "latent_dim": 0,
+        "lr": 0.0040668924420117,
+        "dropout_rate": 0.005293669948279113,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_0_f_D32": {
+        "ae_lr": 0.004637060960111682,
+        "use_autoencoder": true,
+        "latent_dim": 32,
+        "lr": 0.0033252389412138034,
+        "dropout_rate": 0.001346386795051311,
+        "n_layers": 3,
+        "n_neurons": 512
+    },
+    "GV_0_f_D64": {
+        "ae_lr": 0.0020649567354358135,
+        "use_autoencoder": true,
+        "latent_dim": 64,
+        "lr": 0.004034514702572326,
+        "dropout_rate": 0.008675958320226967,
+        "n_layers": 3,
+        "n_neurons": 384
+    },
+    "GV_0_f_D128": {
+        "ae_lr": 0.0025403917862432436,
+        "use_autoencoder": true,
+        "latent_dim": 128,
+        "lr": 0.002599702900404321,
+        "dropout_rate": 3.141898814502898e-05,
+        "n_layers": 4,
+        "n_neurons": 512
+    },
+    "GV_0_f_D256": {
+        "ae_lr": 0.00274486480036278,
+        "use_autoencoder": true,
+        "latent_dim": 256,
+        "lr": 0.003918775439510423,
+        "dropout_rate": 3.543766315763481e-05,
+        "n_layers": 3,
+        "n_neurons": 512
+    },
+    "GV_0_v_D0": {
+        "use_autoencoder": false,
+        "latent_dim": 0,
+        "lr": 0.0028686704756548257,
+        "dropout_rate": 0.0002601702414270951,
+        "n_layers": 3,
+        "n_neurons": 512
+    },
+    "GV_0_v_D32": {
+        "ae_lr": 0.0031930568176266392,
+        "use_autoencoder": true,
+        "latent_dim": 32,
+        "lr": 0.004641454486630382,
+        "dropout_rate": 0.00043832887679292514,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_0_v_D64": {
+        "ae_lr": 0.003286004594288294,
+        "use_autoencoder": true,
+        "latent_dim": 64,
+        "lr": 0.004699153262281255,
+        "dropout_rate": 9.477961823725536e-05,
+        "n_layers": 2,
+        "n_neurons": 448
+    },
+    "GV_0_v_D128": {
+        "ae_lr": 0.0016485532963949794,
+        "use_autoencoder": true,
+        "latent_dim": 128,
+        "lr": 0.004977988484033614,
+        "dropout_rate": 0.00015191693670739816,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_0_v_D256": {
+        "ae_lr": 0.003849023699072145,
+        "use_autoencoder": true,
+        "latent_dim": 256,
+        "lr": 0.0028468392319511053,
+        "dropout_rate": 0.00010823980148548293,
+        "n_layers": 3,
+        "n_neurons": 448
+    },
+    "GV_1_f_D0": {
+        "use_autoencoder": false,
+        "latent_dim": 0,
+        "lr": 0.0009154060960362487,
+        "dropout_rate": 0.015698236154938587,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_f_D32": {
+        "ae_lr": 0.004479138178111878,
+        "use_autoencoder": true,
+        "latent_dim": 32,
+        "lr": 0.0012373907350517956,
+        "dropout_rate": 0.01739134192882192,
+        "n_layers": 2,
+        "n_neurons": 384
+    },
+    "GV_1_f_D64": {
+        "ae_lr": 0.0030736186914582333,
+        "use_autoencoder": true,
+        "latent_dim": 64,
+        "lr": 0.0004814663464162131,
+        "dropout_rate": 0.014840078529706102,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_f_D128": {
+        "ae_lr": 0.0008654348154280995,
+        "use_autoencoder": true,
+        "latent_dim": 128,
+        "lr": 0.000317418378570871,
+        "dropout_rate": 0.029772435500873388,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_f_D256": {
+        "ae_lr": 0.002786348491867431,
+        "use_autoencoder": true,
+        "latent_dim": 256,
+        "lr": 0.0005714021364031098,
+        "dropout_rate": 0.0004283357769268261,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_v_D0": {
+        "use_autoencoder": false,
+        "latent_dim": 0,
+        "lr": 0.00046343035762059224,
+        "dropout_rate": 0.023027849736378652,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_v_D32": {
+        "ae_lr": 0.002733661214222374,
+        "use_autoencoder": true,
+        "latent_dim": 32,
+        "lr": 0.0005576807108819388,
+        "dropout_rate": 0.02340330366101796,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_v_D64": {
+        "ae_lr": 0.0034137913105427393,
+        "use_autoencoder": true,
+        "latent_dim": 64,
+        "lr": 0.0008948110461084829,
+        "dropout_rate": 0.0011990083299773004,
+        "n_layers": 2,
+        "n_neurons": 384
+    },
+    "GV_1_v_D128": {
+        "ae_lr": 0.0018114386081525492,
+        "use_autoencoder": true,
+        "latent_dim": 128,
+        "lr": 0.0005031802739764142,
+        "dropout_rate": 0.024058920806825666,
+        "n_layers": 2,
+        "n_neurons": 512
+    },
+    "GV_1_v_D256": {
+        "ae_lr": 0.0019383391822809036,
+        "use_autoencoder": true,
+        "latent_dim": 256,
+        "lr": 0.0004868651368167926,
+        "dropout_rate": 0.014673474511109234,
+        "n_layers": 2,
+        "n_neurons": 512
+    }
+}

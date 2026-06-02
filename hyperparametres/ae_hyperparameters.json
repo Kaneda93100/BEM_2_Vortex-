@@ -1,0 +1,82 @@
+{
+    "GV_0_f_D32": {
+        "ae_lr": 0.004637060960111682,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_0_f_D64": {
+        "ae_lr": 0.0020649567354358135,
+        "use_autoencoder": true,
+        "latent_dim": 64
+    },
+    "GV_0_f_D128": {
+        "ae_lr": 0.0025403917862432436,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "GV_0_f_D256": {
+        "ae_lr": 0.00274486480036278,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "GV_0_v_D32": {
+        "ae_lr": 0.0031930568176266392,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_0_v_D64": {
+        "ae_lr": 0.003286004594288294,
+        "use_autoencoder": true,
+        "latent_dim": 64
+    },
+    "GV_0_v_D128": {
+        "ae_lr": 0.0016485532963949794,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "GV_0_v_D256": {
+        "ae_lr": 0.003849023699072145,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "GV_1_f_D32": {
+        "ae_lr": 0.004479138178111878,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1_f_D64": {
+        "ae_lr": 0.0030736186914582333,
+        "use_autoencoder": true,
+        "latent_dim": 64
+    },
+    "GV_1_f_D128": {
+        "ae_lr": 0.0008654348154280995,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "GV_1_f_D256": {
+        "ae_lr": 0.002786348491867431,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "GV_1_v_D32": {
+        "ae_lr": 0.002733661214222374,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1_v_D64": {
+        "ae_lr": 0.0034137913105427393,
+        "use_autoencoder": true,
+        "latent_dim": 64
+    },
+    "GV_1_v_D128": {
+        "ae_lr": 0.0018114386081525492,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "GV_1_v_D256": {
+        "ae_lr": 0.0019383391822809036,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    }
+}
