@@ -29,9 +29,12 @@ __pycache__/
 venv/
 .env
 
-
+DataSet/preprocess.py
+DataSet/2/*
+DataSet/Final_DS/*
 .vscode/
 .idea/
 .DS_Store
 pca.py
 test.py
+d

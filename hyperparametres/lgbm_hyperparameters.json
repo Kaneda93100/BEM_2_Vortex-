@@ -42,5 +42,16 @@
         "colsample_bytree": 0.6845819625540195,
         "reg_alpha": 5.988271185909498e-06,
         "reg_lambda": 0.0177056419086233
+    },
+    "GV_1_v_D64": {
+        "n_estimators": 959,
+        "learning_rate": 0.0391519187655502,
+        "max_depth": 8,
+        "num_leaves": 53,
+        "min_child_samples": 5,
+        "subsample": 0.7897714989520336,
+        "colsample_bytree": 0.6889312822960867,
+        "reg_alpha": 4.571176297763704e-05,
+        "reg_lambda": 1.1405491425694264e-08
     }
 }
