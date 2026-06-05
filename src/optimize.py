@@ -29,6 +29,9 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     global_mean_fn = df_train['Fn_SVEN'].abs().mean()
     global_mean_ft = df_train['Ft_SVEN'].abs().mean()
 
+    # INITIALISATION SÉCURISÉE DE LA VARIABLE POUR ÉVITER LE NAMEERROR
+    V_BEM_phys_full = None
+
     # --- PRÉPARATION GÉOMÉTRIE ET SCALERS ---
     if inter == 'v':
         # Force la création du scaler_f
@@ -58,15 +61,12 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
             r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
             c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
 
-            # Création du tenseur V_BEM_phys pour la stratégie 1_v
+        # Création du tenseur V_BEM_phys pour la stratégie 1_v
         if str(residuelle) == '1':
-            # On charge la cible en absolu ('0') pour faire V_SVEN - Delta_V
             _, Y_full_abs = format_data(df_train, entree, '0', inter, is_train=True, device=device)
             V_SVEN_phys_full = scaler_v_torch.inverse_transform(Y_full_abs)
             Delta_V_phys_full = scaler_v_torch.inverse_transform(Y_full)
             V_BEM_phys_full = V_SVEN_phys_full - Delta_V_phys_full
-        else:
-            V_BEM_phys_full = None
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
@@ -118,7 +118,6 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         elif entree == 'GM':
             base_filters = trial.suggest_categorical('base_filters', [16, 32, 64])
 
-        # LOSS AVEC DECODEUR INTÉGRÉ
         if inter == 'v':
             lambda_ingenieur = 0.5
             criterion = PhysicsInformedLoss(current_ae, scaler_v, scaler_f, lambda_ingenieur, r_tensor, c_tensor, polar_surrogate, device)
@@ -132,6 +131,10 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         for train_idx, val_idx in kf.split(X_full.cpu().numpy()):
             X_tr, Y_tr = X_full[train_idx], Y_train_target[train_idx]
             X_val, Y_val = X_full[val_idx], Y_train_target[val_idx]
+            
+            # Utilisation sécurisée de la variable (vaut None ou le tenseur)
+            v_bem_tr = V_BEM_phys_full[train_idx] if V_BEM_phys_full is not None else None
+            v_bem_val = V_BEM_phys_full[val_idx] if V_BEM_phys_full is not None else None
             
             if entree == 'GV':
                 target_dim = latent_dim if use_ae else Y_full.shape[1]
@@ -149,7 +152,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                 model.train()
                 optimizer.zero_grad()
 
-                if inter == 'v' and str(residuelle) == '1':
+                if inter == 'v' and V_BEM_phys_full is not None:
                     loss = criterion(model(X_tr), Y_tr, v_bem_phys=v_bem_tr)
                 else:
                     loss = criterion(model(X_tr), Y_tr)
@@ -176,7 +179,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                     v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
                     v_true_phys = scaler_v_torch.inverse_transform(Y_val)
                     
-                    if str(residuelle) == '1':
+                    if v_bem_val is not None:
                         v_pred_phys = v_pred_phys + v_bem_val
                         v_true_phys = v_true_phys + v_bem_val
 
@@ -191,8 +194,11 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                     f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, r_tensor, c_tensor, polar_surrogate)
                     
                     if is_cnn:
-                        Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                        Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+                        # Alignement des axes comme dans la loss customisée
+                        f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
+                        f_true_phys = f_true_phys.permute(0, 3, 1, 2)
+                        Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                        Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
                     else:
                         Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
                         Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
@@ -210,15 +216,12 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                 rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
                 rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
                 
-                # Protection division par zéro                
                 rel_fn = (rmse_fn / global_mean_fn * 100) if global_mean_fn > 0 else 0
                 rel_ft = (rmse_ft / global_mean_ft * 100) if global_mean_ft > 0 else 0
                 
                 cv_phys_scores.append((rel_fn + rel_ft).item())
 
-        # On stocke le score physique moyen pour qu'Optuna s'en souvienne
         trial.set_user_attr("cv_score_phys_percent", sum(cv_phys_scores) / len(cv_phys_scores))
-        
         return sum(cv_scores) / len(cv_scores)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -229,7 +232,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     best_cv_phys = study_model.best_trial.user_attrs["cv_score_phys_percent"]
     
     final_params = {**ae_params, **study_model.best_params}
-    final_params["Total_Score_CV"] = best_cv_phys # Ajout au JSON
+    final_params["Total_Score_CV"] = best_cv_phys 
     
     target_json = f"hyperparametres/{entree.lower()}_hyperparameters.json"
     if os.path.exists(target_json):

@@ -51,6 +51,10 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
 
 
 def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
+    # === INITIALISATION GLOBALE POUR ÉVITER LE UNBOUND LOCAL ERROR ===
+    V_BEM_phys_train = None
+    # =================================================================
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     base_model_name = f"{entree}_{residuelle}_{inter}"
     saved_name = f"{base_model_name}_{suffixe}"
@@ -106,8 +110,6 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             V_SVEN_phys_tr = scaler_v_torch.inverse_transform(Y_train_abs)
             Delta_V_phys_tr = scaler_v_torch.inverse_transform(Y_train)
             V_BEM_phys_train = V_SVEN_phys_tr - Delta_V_phys_tr
-        else:
-            V_BEM_phys_train = None
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
@@ -148,14 +150,14 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     cv2_phys_scores = []
     
-    # On itère sur les index Numpy
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())):
         X_tr_cv, Y_tr_cv = X_train[train_idx], Y_train_target[train_idx]
         X_val_cv, Y_val_cv = X_train[val_idx], Y_train_target[val_idx]
+        
+        # Extraction locale sécurisée
         v_bem_tr_cv = V_BEM_phys_train[train_idx] if V_BEM_phys_train is not None else None
         v_bem_val_cv = V_BEM_phys_train[val_idx] if V_BEM_phys_train is not None else None
         
-        # Ré-instanciation propre du modèle pour chaque Fold
         if entree == 'GV':
             model_cv = TurbineMLP(X_train.shape[1], target_dim, best_params['n_layers'], best_params['n_neurons'], best_params['dropout_rate'], device=device).to(device)
         elif entree == 'GM':
@@ -166,15 +168,16 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         best_train_loss_cv = float('inf')
         best_model_weights_cv = None
         
-        # Entraînement 1000 époques pour ce fold
         pbar_cv = tqdm(range(1000), desc=f"   -> Fold {fold+1}/3", leave=False)
         for epoch in pbar_cv:
             model_cv.train()
             optimizer_cv.zero_grad()
-            if inter == 'v' and str(residuelle) == '1':
+            
+            if inter == 'v' and V_BEM_phys_train is not None:
                 loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv, v_bem_phys=v_bem_tr_cv)
             else:
                 loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv)
+                
             loss_cv.backward()
             optimizer_cv.step()
             
@@ -185,7 +188,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         if best_model_weights_cv is not None:
             model_cv.load_state_dict(best_model_weights_cv)
             
-        # Évaluation Physique sur le Fold (Même logique rapide GPU que dans optimize.py)
+        # Évaluation Physique sur le Fold
         model_cv.eval()
         with torch.no_grad():
             preds_norm = current_ae.decode(model_cv(X_val_cv)) if use_ae else model_cv(X_val_cv)
@@ -194,7 +197,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                 v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
                 v_true_phys = scaler_v_torch.inverse_transform(Y_val_cv)
 
-                if str(residuelle) == '1':
+                if v_bem_val_cv is not None:
                     v_pred_phys = v_pred_phys + v_bem_val_cv
                     v_true_phys = v_true_phys + v_bem_val_cv
 
@@ -208,8 +211,14 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                 f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
                 f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, r_tensor, c_tensor, polar_surrogate)
                 
-                Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+                if is_cnn:
+                    f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
+                    f_true_phys = f_true_phys.permute(0, 3, 1, 2)
+                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                    Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
+                else:
+                    Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
+                    Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
             else:
                 f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
                 f_true_phys = scaler_f_torch.inverse_transform(Y_val_cv)
@@ -252,7 +261,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     for epoch in pbar:
         model_final.train()
         optimizer_final.zero_grad()
-        if inter == 'v' and str(residuelle) == '1':
+        if inter == 'v' and V_BEM_phys_train is not None:
             loss = criterion(model_final(X_train), Y_train_target, v_bem_phys=V_BEM_phys_train)
         else:
             loss = criterion(model_final(X_train), Y_train_target)
