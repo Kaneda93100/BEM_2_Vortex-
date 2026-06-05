@@ -35,20 +35,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         scaler_v_torch = TorchScaler(scaler_v, device)
         scaler_f_torch = TorchScaler(scaler_f, device)
         
-        polar_surrogate = PolarSurrogate(device=device)
-        polar_surrogate.load_state_dict(torch.load("models/convert_v/polar_surrogate.pth", map_location=device))
-        polar_surrogate.eval()
-        for param in polar_surrogate.parameters(): param.requires_grad = False
-            
-        with open("scalers/scaler_surrogate.pkl", "rb") as f: scalers_surr = pickle.load(f)
-        scaler_polar_X = {
-            "mean": torch.tensor(scalers_surr["scaler_X"].mean_, dtype=torch.float32, device=device),
-            "scale": torch.tensor(scalers_surr["scaler_X"].scale_, dtype=torch.float32, device=device)
-        }
-        scaler_polar_Y = {
-            "mean": torch.tensor(scalers_surr["scaler_Y"].mean_, dtype=torch.float32, device=device),
-            "scale": torch.tensor(scalers_surr["scaler_Y"].scale_, dtype=torch.float32, device=device)
-        }
+        polar_surrogate = PolarSurrogate(device=device).to(device)
 
         geom = get_geometry()
         if is_cnn:
@@ -176,8 +163,8 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                         v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
                         v_eff_t, alpha_t = v_true_phys[:, 0::2], v_true_phys[:, 1::2]
                         
-                    f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate, scaler_polar_X, scaler_polar_Y)
-                    f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, r_tensor, c_tensor, polar_surrogate, scaler_polar_X, scaler_polar_Y)
+                    f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
+                    f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, r_tensor, c_tensor, polar_surrogate)
                     
                     if is_cnn:
                         Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
