@@ -5,6 +5,7 @@ from src.optimize_ae import optimize_and_train_ae
 from src.optimize import optimize
 from src.evaluate import evaluator, evaluate_baselines
 from src.baseline_boost import train_latent_boosting
+from src.train_polar import train_polar_model
 
 def format_duration(seconds):
     """Transforme des secondes en un format lisible."""
@@ -25,8 +26,8 @@ def main():
     # =========================================================================
     # Il faut modifier ces booléens pour lancer uniquement sa partie.
     
-    RUN_GROUP_1 = True   # Groupe 1 : Tous les GV (MLP) + LightGBM
-    RUN_GROUP_2 = False  # Groupe 2 : Uniquement GM_1_f (CNN)
+    RUN_GROUP_1 = False   # Groupe 1 : Tous les GV (MLP) + LightGBM
+    RUN_GROUP_2 = True  # Groupe 2 : Uniquement GM_1_f (CNN)
     RUN_GROUP_3 = False  # Groupe 3 : Uniquement GM_1_v (CNN)
 
     global_start = time.time()
@@ -39,6 +40,12 @@ def main():
     # Évaluation systématique de la baseline BEM pure
     evaluate_baselines(df_test)
 
+    polar_model_path = "models/convert_v/polar_surrogate.pth"
+    if not os.path.exists(polar_model_path):
+        print(f"\n[INIT] Modèle de substitution introuvable. Lancement de train_polar.py...")
+        train_polar_model()
+    else:
+        print(f"\n[INIT] Modèle de substitution des polaires déjà existant dans '{polar_model_path}'. Étape ignorée.")
 
     # =========================================================================
     # GROUPE 1 : GV (Deep Learning MLP) + BOOSTING (LightGBM)
@@ -57,10 +64,10 @@ def main():
 
         # 1.A. Pipeline GV (MLP)
         gv_experiments = [
-            #{'entree': 'GV', 'res': '0', 'inter': 'f', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
-            #{'entree': 'GV', 'res': '0', 'inter': 'v', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
-            #{'entree': 'GV', 'res': '1', 'inter': 'f', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
-            #{'entree': 'GV', 'res': '1', 'inter': 'v', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
+            {'entree': 'GV', 'res': '0', 'inter': 'f', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
+            {'entree': 'GV', 'res': '0', 'inter': 'v', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
+            {'entree': 'GV', 'res': '1', 'inter': 'f', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
+            {'entree': 'GV', 'res': '1', 'inter': 'v', 'trials': 150, 'dims': [0, 32, 64, 128, 256]},
         ]
         
         for exp in gv_experiments:
@@ -95,7 +102,7 @@ def main():
         # 1.B. Pipeline LightGBM
         lgbm_experiments = [
             #{'entree': 'GV', 'res': '1', 'inter': 'f', 'dims': [32, 64, 128]},
-            {'entree': 'GV', 'res': '1', 'inter': 'v', 'dims': [32, 64]},
+            #{'entree': 'GV', 'res': '1', 'inter': 'v', 'dims': [32, 64]},
         ]
         
         for exp in lgbm_experiments:
@@ -124,7 +131,7 @@ def main():
         print(f"{'#'*80}")
         
         gm_f_experiments = [
-            {'entree': 'GM', 'res': '1', 'inter': 'f', 'trials': 50, 'dims': [0, 128, 256, 512]}
+            {'entree': 'GM', 'res': '1', 'inter': 'f', 'trials': 1, 'dims': [0, 128, 256, 512]}
         ]
         
         for exp in gm_f_experiments:

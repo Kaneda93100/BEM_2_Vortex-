@@ -3,9 +3,12 @@ import json
 import torch
 import torch.nn as nn
 import os
+import numpy as np
+import pickle
 from sklearn.model_selection import KFold
-from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder
+from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, DummyAE, TorchScaler, convert_v_to_f_torch
 from .data_loader import format_data
+from .physics import get_geometry
 from tqdm import tqdm
 
 def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
@@ -20,52 +23,90 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     print(f"{'='*50}")
     
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
-    criterion = nn.MSELoss()
+    is_cnn = (entree == 'GM')
     
-    # --- 1. Gestion du Suffixe et Chargement de l'Auto-encodeur depuis le JSON global ---
+    # --- PRÉPARATION GÉOMÉTRIE ET SCALERS ---
+    if inter == 'v':
+        # Force la création du scaler_f
+        _, _ = format_data(df_train, entree, residuelle, 'f', is_train=True, device=device)
+        
+        with open(f"scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
+        with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        scaler_v_torch = TorchScaler(scaler_v, device)
+        scaler_f_torch = TorchScaler(scaler_f, device)
+        
+        polar_surrogate = PolarSurrogate(device=device)
+        polar_surrogate.load_state_dict(torch.load("models/convert_v/polar_surrogate.pth", map_location=device))
+        polar_surrogate.eval()
+        for param in polar_surrogate.parameters(): param.requires_grad = False
+            
+        with open("scalers/scaler_surrogate.pkl", "rb") as f: scalers_surr = pickle.load(f)
+        scaler_polar_X = {
+            "mean": torch.tensor(scalers_surr["scaler_X"].mean_, dtype=torch.float32, device=device),
+            "scale": torch.tensor(scalers_surr["scaler_X"].scale_, dtype=torch.float32, device=device)
+        }
+        scaler_polar_Y = {
+            "mean": torch.tensor(scalers_surr["scaler_Y"].mean_, dtype=torch.float32, device=device),
+            "scale": torch.tensor(scalers_surr["scaler_Y"].scale_, dtype=torch.float32, device=device)
+        }
+
+        geom = get_geometry()
+        if is_cnn:
+            r_uniques = np.sort(df_train['r'].unique())
+            theta_uniques = np.sort(df_train['theta'].unique())
+            R_grid, _ = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
+            r_tensor = torch.tensor(R_grid, dtype=torch.float32, device=device)
+            c_grid = np.array([geom.get_chord(r) for r in r_uniques])
+            C_grid, _ = np.meshgrid(c_grid, theta_uniques, indexing='ij')
+            c_tensor = torch.tensor(C_grid, dtype=torch.float32, device=device)
+        else:
+            group = df_train[(df_train['yaw'] == df_train['yaw'].iloc[0])]
+            if 'TSR' in group.columns: group = group[group['TSR'] == group['TSR'].iloc[0]]
+            group = group.sort_values(['theta', 'r'])
+            r_array = group['r'].values
+            r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
+            c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
+    else:
+        with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        scaler_f_torch = TorchScaler(scaler_f, device)
+
+    # --- 1. Gestion de l'Auto-encodeur ---
+    Y_train_target = Y_full  
+    
     if suffixe == 'D0':
         use_ae = False
         latent_dim = 0
         ae_params = {"use_autoencoder": False, "latent_dim": 0}
-        Y_train_target = Y_full
+        current_ae = DummyAE()
     else:
         ae_master_path = "hyperparametres/ae_hyperparameters.json"
         ae_weights_path = f"models/ae/ae_{saved_name}.pth"
         
         use_ae = os.path.exists(ae_master_path) and os.path.exists(ae_weights_path)
-        
         if use_ae:
-            with open(ae_master_path, "r") as f:
-                all_ae_params = json.load(f)
-                
+            with open(ae_master_path, "r") as f: all_ae_params = json.load(f)
             if saved_name in all_ae_params:
                 ae_params = all_ae_params[saved_name]
                 latent_dim = ae_params['latent_dim']
                 
-                # Reconstruction de l'AE pour projeter Y_full dans l'espace latent
                 if entree == 'GM':
-                    ae_model = ConvolutionalAutoencoder(in_channels=Y_full.shape[1], latent_dim=latent_dim,
+                    current_ae = ConvolutionalAutoencoder(in_channels=Y_full.shape[1], latent_dim=latent_dim,
                                                         depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device)
                 else:
-                    ae_model = LinearAutoencoder(in_features=Y_full.shape[1], latent_dim=latent_dim, device=device).to(device)
+                    current_ae = LinearAutoencoder(in_features=Y_full.shape[1], latent_dim=latent_dim, device=device).to(device)
                     
-                ae_model.load_state_dict(torch.load(ae_weights_path, map_location=device))
-                ae_model.eval()
-                with torch.no_grad():
-                    Y_train_target = ae_model.encode(Y_full)
-                print(f"   -> AE chargé avec succès. Espace latent : {latent_dim} dimensions.")
+                current_ae.load_state_dict(torch.load(ae_weights_path, map_location=device))
+                current_ae.eval()
             else:
                 use_ae = False
                 
         if not use_ae:
-            print(f"   [ATTENTION] AE requis ({saved_name}) mais introuvable dans le master JSON ou models/. Mode sans AE forcé.")
             latent_dim = 0
             ae_params = {"use_autoencoder": False, "latent_dim": 0}
-            Y_train_target = Y_full
+            current_ae = DummyAE()
 
-    # --- 2. Objectif Optuna pour le Modèle Prédictif ---
+    # --- 2. Objectif Optuna ---
     def objective_model(trial):
-        # Hyperparamètres communs
         lr = trial.suggest_float('lr', 1e-4, 5e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.0, 0.4)
         n_layers = trial.suggest_int('n_layers', 2, 5)
@@ -75,19 +116,24 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         elif entree == 'GM':
             base_filters = trial.suggest_categorical('base_filters', [16, 32, 64])
 
-        # Cross-validation
+        # LOSS AVEC DECODEUR INTÉGRÉ
+        if inter == 'v':
+            lambda_ingenieur = 0.5
+            criterion = PhysicsInformedLoss(current_ae, scaler_v, scaler_f, lambda_ingenieur, r_tensor, c_tensor, polar_surrogate, device)
+        else:
+            criterion = DecoderLoss(current_ae)
+
         kf = KFold(n_splits=3, shuffle=True, random_state=42)
         cv_scores = []
+        cv_phys_scores = [] 
         
-        for fold, (train_idx, val_idx) in enumerate(kf.split(X_full.cpu().numpy())):
-            X_tr = X_full[train_idx]
-            Y_tr = Y_train_target[train_idx]
-            X_val = X_full[val_idx]
-            Y_val = Y_train_target[val_idx]
+        for train_idx, val_idx in kf.split(X_full.cpu().numpy()):
+            X_tr, Y_tr = X_full[train_idx], Y_train_target[train_idx]
+            X_val, Y_val = X_full[val_idx], Y_train_target[val_idx]
             
             if entree == 'GV':
-                current_out = latent_dim if use_ae else Y_full.shape[1]
-                model = TurbineMLP(X_full.shape[1], current_out, n_layers, n_neurons, dropout_rate, device=device).to(device)
+                target_dim = latent_dim if use_ae else Y_full.shape[1]
+                model = TurbineMLP(X_full.shape[1], target_dim, n_layers, n_neurons, dropout_rate, device=device).to(device)
             elif entree == 'GM':
                 target_dim = latent_dim if use_ae else Y_full.shape[1]
                 model = TurbineCNN(in_channels=X_full.shape[1], out_channels=target_dim, 
@@ -106,34 +152,86 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                 
                 model.eval()
                 with torch.no_grad():
-                    val_loss = criterion(model(X_val), Y_val).item()
-                
+                    preds_val = model(X_val)
+                    val_loss = criterion(preds_val, Y_val).item()
+                    
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     
             cv_scores.append(best_val_loss)
             
+            # --- CALCUL DU TOTAL_SCORE (%) PHYSIQUE SUR LA VALIDATION ---
+            model.eval()
+            with torch.no_grad():
+                preds_norm = current_ae.decode(model(X_val)) if use_ae else model(X_val)
+                
+                if inter == 'v':
+                    v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
+                    v_true_phys = scaler_v_torch.inverse_transform(Y_val)
+                    
+                    if is_cnn:
+                        v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
+                        v_eff_t, alpha_t = v_true_phys[:, 0], v_true_phys[:, 1]
+                    else:
+                        v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
+                        v_eff_t, alpha_t = v_true_phys[:, 0::2], v_true_phys[:, 1::2]
+                        
+                    f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate, scaler_polar_X, scaler_polar_Y)
+                    f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, r_tensor, c_tensor, polar_surrogate, scaler_polar_X, scaler_polar_Y)
+                    
+                    if is_cnn:
+                        Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
+                        Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+                    else:
+                        Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
+                        Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+                else:
+                    f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
+                    f_true_phys = scaler_f_torch.inverse_transform(Y_val)
+                    
+                    if is_cnn:
+                        Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                        Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
+                    else:
+                        Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
+                        Fn_t, Ft_t = f_true_phys[:, 0::2], f_true_phys[:, 1::2]
+                        
+                rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
+                rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
+                
+                # Protection division par zéro
+                mean_fn_t = torch.mean(torch.abs(Fn_t))
+                mean_ft_t = torch.mean(torch.abs(Ft_t))
+                
+                rel_fn = (rmse_fn / mean_fn_t * 100) if mean_fn_t > 0 else 0
+                rel_ft = (rmse_ft / mean_ft_t * 100) if mean_ft_t > 0 else 0
+                
+                cv_phys_scores.append((rel_fn + rel_ft).item())
+
+        # On stocke le score physique moyen pour qu'Optuna s'en souvienne
+        trial.set_user_attr("cv_score_phys_percent", sum(cv_phys_scores) / len(cv_phys_scores))
+        
         return sum(cv_scores) / len(cv_scores)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study_model = optuna.create_study(direction='minimize')
     study_model.optimize(objective_model, n_trials=n_trials, show_progress_bar=True)
     
-    # --- 3. Sauvegarde dans les dictionnaires (GV ou GM) ---
+    # --- 3. Sauvegarde ---
+    best_cv_phys = study_model.best_trial.user_attrs["cv_score_phys_percent"]
+    
     final_params = {**ae_params, **study_model.best_params}
+    final_params["Total_Score_CV"] = best_cv_phys # Ajout au JSON !
     
     target_json = f"hyperparametres/{entree.lower()}_hyperparameters.json"
-    
     if os.path.exists(target_json):
-        with open(target_json, "r") as f:
-            all_model_params = json.load(f)
+        with open(target_json, "r") as f: all_model_params = json.load(f)
     else:
         all_model_params = {}
         
     all_model_params[saved_name] = final_params
-    
-    with open(target_json, "w") as f:
-        json.dump(all_model_params, f, indent=4)
+    with open(target_json, "w") as f: json.dump(all_model_params, f, indent=4)
         
-    print(f"   [OK] Modèle {saved_name} optimisé. Meilleure CV MSE : {study_model.best_value:.6f}")
-    print(f"   [OK] Paramètres ajoutés au dictionnaire {target_json}")
+    print(f"   [OK] Modèle {saved_name} optimisé.")
+    print(f"   -> MSE Validation : {study_model.best_value:.6f}")
+    print(f"   -> Erreur Relative Physique (CV) : {best_cv_phys:.2f} %")
