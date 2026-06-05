@@ -233,3 +233,181 @@ class LinearAutoencoder(nn.Module):
 
     def forward(self, x):
         return self.decoder(self.encoder(x))
+
+
+class TorchScaler:
+    """ Transforme un StandardScaler sklearn en opérations PyTorch différentiables """
+    def __init__(self, sklearn_scaler, device):
+        self.mean = torch.tensor(sklearn_scaler.mean_, dtype=torch.float32, device=device)
+        self.scale = torch.tensor(sklearn_scaler.scale_, dtype=torch.float32, device=device)
+        
+    def inverse_transform(self, tensor_norm):
+        # 1. Sauvegarde de la forme originale 
+        orig_shape = tensor_norm.shape
+        
+        # 2. Aplatissement temporaire en 2D pour la multiplication
+        tensor_flat = tensor_norm.reshape(orig_shape[0], -1)
+        
+        # 3. Opération mathématique différentiable
+        tensor_phys = tensor_flat * self.scale + self.mean
+        
+        # 4. Restauration de la forme originale
+        return tensor_phys.reshape(orig_shape)
+        
+    def transform(self, tensor_phys):
+        orig_shape = tensor_phys.shape
+        tensor_flat = tensor_phys.reshape(orig_shape[0], -1)
+        tensor_norm = (tensor_flat - self.mean) / self.scale
+        return tensor_norm.reshape(orig_shape)
+
+
+class PolarSurrogate(nn.Module):
+    """ 
+    Mini-réseau de neurones pour interpoler Cl et Cd de manière différentiable.
+    Entraîné au préalable sur airfoils.csv.
+    """
+    def __init__(self, device='cpu'):
+        super(PolarSurrogate, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2, 64, device=device),
+            nn.GELU(),
+            nn.Linear(64, 64, device=device),
+            nn.GELU(),
+            nn.Linear(64, 64, device=device),
+            nn.GELU(),
+            nn.Linear(64, 2, device=device)
+        )
+
+    def forward(self, x):
+        # x doit avoir la forme [..., 2] contenant (alpha_deg, r)
+        return self.net(x)
+
+
+def convert_v_to_f_torch(v_eff, alpha_deg, r_tensor, c_tensor, polar_surrogate, scaler_polar_X, scaler_polar_Y, rho=1.198):
+    """
+    Version 100% PyTorch de la conversion V -> F.
+    r_tensor et c_tensor sont automatiquement "broadcastés" pour correspondre à la taille du batch.
+    """
+    alpha_rad = alpha_deg * (torch.pi / 180.0)
+    
+    # 1. Expansion pour correspondre aux dimensions de V_eff / alpha
+    r_expanded = r_tensor.expand_as(alpha_deg)
+    c_expanded = c_tensor.expand_as(alpha_deg)
+    
+    # 2. Normalisation des entrées pour le Surrogate
+    alpha_norm = (alpha_deg - scaler_polar_X["mean"][0]) / scaler_polar_X["scale"][0]
+    r_norm = (r_expanded - scaler_polar_X["mean"][1]) / scaler_polar_X["scale"][1]
+    
+    surrogate_in = torch.stack([alpha_norm, r_norm], dim=-1)
+    
+    # 3. Prédiction et dénormalisation des sorties
+    cl_cd_norm = polar_surrogate(surrogate_in)
+    
+    Cl = (cl_cd_norm[..., 0] * scaler_polar_Y["scale"][0]) + scaler_polar_Y["mean"][0]
+    Cd = (cl_cd_norm[..., 1] * scaler_polar_Y["scale"][1]) + scaler_polar_Y["mean"][1]
+    
+    # 4. Projections physiques
+    Cn = Cl * torch.cos(alpha_rad) + Cd * torch.sin(alpha_rad)
+    Ct = Cl * torch.sin(alpha_rad) - Cd * torch.cos(alpha_rad)
+    
+    # 5. Calcul des forces
+    q = 0.5 * rho * (v_eff**2) * c_expanded
+    Fn = q * Cn
+    Ft = -q * Ct 
+    
+    return torch.stack([Fn, Ft], dim=-1)
+
+class DecoderLoss(nn.Module):
+    """ 
+    Loss pour la Stratégie 'f'. 
+    Calcule la MSE entre la vérité terrain et la prédiction DÉCODÉE.
+    """
+    def __init__(self, ae_model):
+        super().__init__()
+        self.ae_model = ae_model
+        self.mse = nn.MSELoss()
+
+    def forward(self, z_pred, y_true_norm):
+        y_pred_norm = self.ae_model.decode(z_pred)
+        return self.mse(y_pred_norm, y_true_norm)
+
+
+class PhysicsInformedLoss(nn.Module):
+    """ 
+    Loss pour la Stratégie 'v'. 
+    Combinaison convexe (lambda) entre l'erreur sur les vitesses et les forces.
+    """
+    def __init__(self, ae_model, scaler_v, scaler_f, lambda_val, r_tensor, c_tensor, polar_surrogate, device):
+        super().__init__()
+        self.ae_model = ae_model
+        self.scaler_v = TorchScaler(scaler_v, device)
+        self.scaler_f = TorchScaler(scaler_f, device)
+        self.lambda_val = lambda_val
+        self.r = r_tensor.to(device)
+        self.c = c_tensor.to(device)
+        self.polar_surrogate = polar_surrogate.to(device)
+        self.mse = nn.MSELoss()
+
+        # Chargement automatique des coefficients du Surrogate Polar
+        import pickle
+        with open("scalers/scaler_surrogate.pkl", "rb") as f:
+            scalers = pickle.load(f)
+
+        self.scaler_polar_X = {
+            "mean": torch.tensor(scalers["scaler_X"].mean_, dtype=torch.float32, device=device),
+            "scale": torch.tensor(scalers["scaler_X"].scale_, dtype=torch.float32, device=device)
+        }
+        self.scaler_polar_Y = {
+            "mean": torch.tensor(scalers["scaler_Y"].mean_, dtype=torch.float32, device=device),
+            "scale": torch.tensor(scalers["scaler_Y"].scale_, dtype=torch.float32, device=device)
+        }
+
+    def forward(self, z_pred, v_true_norm):
+        # 1. Décodage de la prédiction latente
+        v_pred_norm = self.ae_model.decode(z_pred)
+        
+        # 2. Loss Cinématique standard (MSE vitesses)
+        loss_v = self.mse(v_pred_norm, v_true_norm)
+        
+        if self.lambda_val == 0.0:
+            return loss_v
+            
+        # 3. Dénormalisation des vitesses (Prédites ET Réelles)
+        v_pred_phys = self.scaler_v.inverse_transform(v_pred_norm)
+        v_true_phys = self.scaler_v.inverse_transform(v_true_norm)
+        
+        # 4. Séparation V_eff et Alpha selon l'architecture (CNN vs MLP)
+        is_cnn = (len(v_pred_phys.shape) == 4)
+        if is_cnn:
+            v_eff_pred, alpha_pred = v_pred_phys[:, 0], v_pred_phys[:, 1]
+            v_eff_true, alpha_true = v_true_phys[:, 0], v_true_phys[:, 1]
+        else:
+            v_eff_pred, alpha_pred = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
+            v_eff_true, alpha_true = v_true_phys[:, 0::2], v_true_phys[:, 1::2]
+            
+        # 5. Conversion Physique Différentiable
+        f_pred_phys = convert_v_to_f_torch(v_eff_pred, alpha_pred, self.r, self.c, self.polar_surrogate, self.scaler_polar_X, self.scaler_polar_Y)
+        f_true_phys = convert_v_to_f_torch(v_eff_true, alpha_true, self.r, self.c, self.polar_surrogate, self.scaler_polar_X, self.scaler_polar_Y)
+        
+        # 6. Remise en forme pour le Scaler_F des forces
+        if is_cnn:
+            f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
+            f_true_phys = f_true_phys.permute(0, 3, 1, 2)
+        else:
+            f_pred_phys = f_pred_phys.reshape(v_pred_phys.shape[0], -1)
+            f_true_phys = f_true_phys.reshape(v_true_phys.shape[0], -1)
+            
+        # 7. Renormalisation par le Scaler_F
+        f_pred_norm = self.scaler_f.transform(f_pred_phys)
+        f_true_norm = self.scaler_f.transform(f_true_phys)
+        
+        # 8. Loss Physique
+        loss_f = self.mse(f_pred_norm, f_true_norm)
+        
+        # 9. Combinaison Convexe
+        return (1 - self.lambda_val) * loss_v + self.lambda_val * loss_f
+
+class DummyAE(nn.Module):
+    """ Faux AE utilisé quand D0 est sélectionné, pour que la Loss fonctionne sans modification. """
+    def decode(self, z): 
+        return z
