@@ -38,6 +38,7 @@ DataSet/2/*
 .DS_Store
 
 DataSet/Final_DS/*
-FatTraining.py
+*.zip
+FatTraining/performance/*
 preprocess.py
 test.py

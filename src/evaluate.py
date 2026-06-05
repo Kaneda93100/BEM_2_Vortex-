@@ -12,31 +12,44 @@ from .data_loader import format_data, get_splits
 from .physics import convert_v_to_f
 
 
-def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
+def reconstruct_predictions(df_test, preds, entree, residuelle, inter, comp = 'nc'):
     """Réaligne les prédictions avec r, theta et yaw et gère le résidu BEM."""
     res_str = str(residuelle)
     
+    if comp not in ['c', 'nc'] :
+        raise ValueError('\n!!! comp doit être "c" ou "nc" !!! Arrêt.\n')
+
     # 1.stratégie f vs v
-    if inter == 'f':
-        c1, c2 = 'Fn', 'Ft'
-        c1_bem, c2_bem = 'Fn_BEM', 'Ft_BEM'
-    elif inter == 'v':
-        c1, c2 = 'V_eff', 'alpha'
-        c1_bem, c2_bem = 'V_eff_BEM', 'alpha_BEM'
-        
+    if comp == 'nc' :
+        if inter == 'f':
+            c1, c2 = 'Fn', 'Ft'
+            c1_bem, c2_bem = 'Fn_BEM', 'Ft_BEM'
+        elif inter == 'v':
+            c1, c2 = 'V_eff', 'alpha'
+            c1_bem, c2_bem = 'V_eff_BEM', 'alpha_BEM'
+    else :
+        c_bem = 'BEM'
+
     records = []
     
     # 2. Reconstitution des prédictions
     if entree == 'L':
-        for i in range(len(df_test)):
-            row = df_test.iloc[i]
-            v1, v2 = preds[i, 0], preds[i, 1]
-            if res_str == '1': 
-                v1 += row[c1_bem]
-                v2 += row[c2_bem]
-
-            records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
-            
+        if comp == 'nc':
+            for i in range(len(df_test)):
+                row = df_test.iloc[i]
+                v1, v2 = preds[i, 0], preds[i, 1]
+                if res_str == '1': 
+                    v1 += row[c1_bem]
+                    v2 += row[c2_bem]
+                records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
+        else :
+            for i in range(len(df_test)) :
+                row = df_test.iloc[i]
+                v = preds[i,0]
+                if res_str == '1' :
+                    v += row[c_bem]
+                records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], 'pred': v})
+                
     elif entree == 'GR':
         # Groupement par theta ET yaw
         for i, (name, group) in enumerate(df_test.groupby(['theta', 'yaw'])):
@@ -60,17 +73,29 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
                 records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
                 
     elif entree == 'G':
-        # Groupement par yaw uniquement
-        for i, (y_val, group) in enumerate(df_test.groupby('yaw')):
-            group = group.sort_values(['theta', 'r'])
-            # preds[i] est le vecteur de taille 2592
-            p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2] 
-            for j, (_, row) in enumerate(group.iterrows()):
-                v1, v2 = p_v1[j], p_v2[j]
-                if res_str == '1':
-                    v1 += row[c1_bem]; v2 += row[c2_bem]
-                records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
-                
+        if comp == 'nc' :
+            # Groupement par yaw uniquement
+            for i, (y_val, group) in enumerate(df_test.groupby('yaw')):
+                group = group.sort_values(['theta', 'r'])
+                # preds[i] est le vecteur de taille 2592
+                p_v1, p_v2 = preds[i, 0::2], preds[i, 1::2] 
+                for j, (_, row) in enumerate(group.iterrows()):
+                    v1, v2 = p_v1[j], p_v2[j]
+                    if res_str == '1':
+                        v1 += row[c1_bem]; v2 += row[c2_bem]
+                    records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], f'{c1}_pred': v1, f'{c2}_pred': v2})
+        else :
+            # Groupement par yaw uniquement
+            for i, (y_val, group) in enumerate(df_test.groupby('yaw')):
+                group = group.sort_values(['theta', 'r'])
+                # preds[i] est le vecteur de taille 2592
+                p = preds[i, 0] 
+                for j, (_, row) in enumerate(group.iterrows()):
+                    v = p[j]
+                    if res_str == '1':
+                        v += row[c_bem]
+                    records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], 'pred': v})
+
     df_preds = pd.DataFrame(records)
     
 
