@@ -25,6 +25,69 @@ from src.physics import convert_v_to_f
 
 datas_dir = P.Path('DataSet/Final_DS')
 
+def format_data(df, entree, res, inter) :
+
+    res_str = str(res)
+
+    # 1. Sélection des variables intermédiaires
+    if inter == 'f':
+        cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
+    elif inter == 'v':
+        cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
+    else:
+        raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
+
+    # 2. Sélection des données selon la stratégie
+    if entree == 'L':
+        indexs = df[cols_sven].index
+        if res_str == '1': # Stratégie résiduelle
+            if ponderate == True : 
+                Ypond = []
+                for i in range(len(cols_sven))  :
+                    Ypond.append((df[cols_sven[i]].values - df[cols_bem[i]].values)*df['r'][indexs].values)
+                Y_np = np.array(Ypond).T
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+            else : 
+                Y_np = df[cols_sven].values - df[cols_bem].values
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+        else: # Stratégie directe
+            if ponderate == True : 
+                Ypond = []
+                for i in range(len(cols_sven))  :
+                    Ypond.append((df[cols_sven[i]].values)*df['r'][indexs].values)
+                Y_np = np.array(Ypond).T
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+            else : 
+                Y_np = df[cols_sven].values
+                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw']].values
+    elif entree == 'G': 
+        grouped = df.groupby('yaw')
+        X_list, Y_list = [], []
+        for y_val, group in grouped:
+            # Tri strict pour que le vecteur soit toujours dans le même ordre (theta puis r)
+            group = group.sort_values(['theta', 'r'])
+            index_group = group.index
+
+            if ponderate == True :
+                Ypond_sven = []
+                Ypond_bem = []
+                for i in range(len(cols_sven)) :
+                    Ypond_sven.append(group[cols_sven[i]].values*df['r'][index_group].values)
+                    Ypond_bem.append(group[cols_bem[i]].values*df['r'][index_group].values) 
+                y_sven = (np.array(Ypond_sven)).flatten()
+                y_bem = (np.array(Ypond_bem)).flatten()
+            else : 
+                y_sven = group[cols_sven].values.flatten()
+                y_bem = group[cols_bem].values.flatten() 
+            
+            if res_str == '1':
+                Y_val = y_sven - y_bem
+                X_val = np.concatenate(([y_val], y_bem)) 
+            else:
+                Y_val = y_sven
+                X_val = np.array([y_val])    
+    return 
+
 def optimization_process(X,Y, model_name, n_trials = 1) :
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
@@ -247,19 +310,20 @@ def train_val_save(df_train, df_val, residuelle, file_name, inter, model_name, e
     else :
         df_recap.to_csv(recap_path, index = False)
 
-    print(f" Terminé ! Score: {recap_data['Score_Global_%']:.2f}%")
+    print(f" Terminé ! ")
     return 
 
 def FatTraining(datas_dir = datas_dir) :
     
     for csv in os.listdir(datas_dir) :
+        csv = '/home/arthur/Documents/GitHub/BEM_2_Vortex-/DataSet/Final_DS/BEM_Dummy_f_p_nc.csv'
         file_name = P.Path(csv).stem
         if '_v_' in P.Path(csv).stem :
             inter = 'v'
         elif '_f_' in P.Path(csv).stem :
             inter = 'f'
     
-        for model in ['L', 'G'] :
+        for model in ['G','L'] :
             for res in ['0', '1'] :
                 name_model = model + '_' + P.Path(csv).stem
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -270,8 +334,8 @@ def FatTraining(datas_dir = datas_dir) :
                     features_keys = ['yaw', 'TSR']
                     targ_keys = []
                     for key in df_train.keys() :
-                        if 'BEM' in key : key.append(features_keys)
-                        if 'SVEN' in key : key.append(targ_keys)
+                        if 'BEM' in key : features_keys.append(key)
+                        if 'SVEN' in key : targ_keys.append(key)
                 elif model == 'L' :
                     features_keys = ['yaw', 'TSR', 'r', 'theta']
                     targ_keys = []

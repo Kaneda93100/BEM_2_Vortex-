@@ -91,7 +91,7 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter, comp = 'n
                 # preds[i] est le vecteur de taille 2592
                 p = preds[i, 0] 
                 for j, (_, row) in enumerate(group.iterrows()):
-                    v = p[j]
+                    v = p
                     if res_str == '1':
                         v += row[c_bem]
                     records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], 'pred': v})

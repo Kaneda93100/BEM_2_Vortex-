@@ -52,7 +52,7 @@ def optimize(df_train, entree, residuelle, inter, n_trials=50):
             
             model.train()
             # Simple boucle d'entraînement (réduite pour Optuna)
-            for epoch in range(150):
+            for epoch in range(2):
                 model.train()
                 for batch_x, batch_y in train_loader:
                     optimizer.zero_grad()
