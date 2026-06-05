@@ -71,6 +71,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=False, device=device)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
 
+    global_mean_fn_train = df_train['Fn_SVEN'].abs().mean()
+    global_mean_ft_train = df_train['Ft_SVEN'].abs().mean()
+
     # --- 1. PRÉPARATION SCALERS ET Polar (Pour l'éval physique sur GPU) ---
     if inter == 'v':
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
@@ -96,6 +99,15 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             r_array = group['r'].values
             r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
             c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
+
+        # Création du tenseur V_BEM_phys pour le Train complet
+        if str(residuelle) == '1':
+            _, Y_train_abs = format_data(df_train, entree, '0', inter, is_train=False, device=device)
+            V_SVEN_phys_tr = scaler_v_torch.inverse_transform(Y_train_abs)
+            Delta_V_phys_tr = scaler_v_torch.inverse_transform(Y_train)
+            V_BEM_phys_train = V_SVEN_phys_tr - Delta_V_phys_tr
+        else:
+            V_BEM_phys_train = None
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
@@ -140,6 +152,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())):
         X_tr_cv, Y_tr_cv = X_train[train_idx], Y_train_target[train_idx]
         X_val_cv, Y_val_cv = X_train[val_idx], Y_train_target[val_idx]
+        v_bem_tr_cv = V_BEM_phys_train[train_idx] if V_BEM_phys_train is not None else None
+        v_bem_val_cv = V_BEM_phys_train[val_idx] if V_BEM_phys_train is not None else None
         
         # Ré-instanciation propre du modèle pour chaque Fold
         if entree == 'GV':
@@ -157,7 +171,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         for epoch in pbar_cv:
             model_cv.train()
             optimizer_cv.zero_grad()
-            loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv)
+            if inter == 'v' and str(residuelle) == '1':
+                loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv, v_bem_phys=v_bem_tr_cv)
+            else:
+                loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv)
             loss_cv.backward()
             optimizer_cv.step()
             
@@ -176,7 +193,11 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             if inter == 'v':
                 v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
                 v_true_phys = scaler_v_torch.inverse_transform(Y_val_cv)
-                
+
+                if str(residuelle) == '1':
+                    v_pred_phys = v_pred_phys + v_bem_val_cv
+                    v_true_phys = v_true_phys + v_bem_val_cv
+
                 if is_cnn:
                     v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
                     v_eff_t, alpha_t = v_true_phys[:, 0], v_true_phys[:, 1]
@@ -202,10 +223,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                     
             rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
             rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
-            mean_fn_t = torch.mean(torch.abs(Fn_t))
-            mean_ft_t = torch.mean(torch.abs(Ft_t))
-            rel_fn = (rmse_fn / mean_fn_t * 100) if mean_fn_t > 0 else 0
-            rel_ft = (rmse_ft / mean_ft_t * 100) if mean_ft_t > 0 else 0
+            rel_fn = (rmse_fn / global_mean_fn_train * 100) if global_mean_fn_train > 0 else 0
+            rel_ft = (rmse_ft / global_mean_ft_train * 100) if global_mean_ft_train > 0 else 0
             
             score_fold = (rel_fn + rel_ft).item()
             cv2_phys_scores.append(score_fold)
@@ -233,7 +252,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     for epoch in pbar:
         model_final.train()
         optimizer_final.zero_grad()
-        loss = criterion(model_final(X_train), Y_train_target)
+        if inter == 'v' and str(residuelle) == '1':
+            loss = criterion(model_final(X_train), Y_train_target, v_bem_phys=V_BEM_phys_train)
+        else:
+            loss = criterion(model_final(X_train), Y_train_target)
         loss.backward()
         optimizer_final.step()
         

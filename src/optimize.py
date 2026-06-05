@@ -24,7 +24,11 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
     is_cnn = (entree == 'GM')
-    
+
+    # Récupération des moyennes SVEN globales pour le calcul du vrai (%) ---
+    global_mean_fn = df_train['Fn_SVEN'].abs().mean()
+    global_mean_ft = df_train['Ft_SVEN'].abs().mean()
+
     # --- PRÉPARATION GÉOMÉTRIE ET SCALERS ---
     if inter == 'v':
         # Force la création du scaler_f
@@ -53,10 +57,21 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
             r_array = group['r'].values
             r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
             c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
+
+            # Création du tenseur V_BEM_phys pour la stratégie 1_v
+        if str(residuelle) == '1':
+            # On charge la cible en absolu ('0') pour faire V_SVEN - Delta_V
+            _, Y_full_abs = format_data(df_train, entree, '0', inter, is_train=True, device=device)
+            V_SVEN_phys_full = scaler_v_torch.inverse_transform(Y_full_abs)
+            Delta_V_phys_full = scaler_v_torch.inverse_transform(Y_full)
+            V_BEM_phys_full = V_SVEN_phys_full - Delta_V_phys_full
+        else:
+            V_BEM_phys_full = None
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
 
+    
     # --- 1. Gestion de l'Auto-encodeur ---
     Y_train_target = Y_full  
     
@@ -133,7 +148,12 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
             for epoch in range(150):
                 model.train()
                 optimizer.zero_grad()
-                loss = criterion(model(X_tr), Y_tr) 
+
+                if inter == 'v' and str(residuelle) == '1':
+                    loss = criterion(model(X_tr), Y_tr, v_bem_phys=v_bem_tr)
+                else:
+                    loss = criterion(model(X_tr), Y_tr)
+
                 loss.backward()
                 optimizer.step()
                 
@@ -156,6 +176,10 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                     v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
                     v_true_phys = scaler_v_torch.inverse_transform(Y_val)
                     
+                    if str(residuelle) == '1':
+                        v_pred_phys = v_pred_phys + v_bem_val
+                        v_true_phys = v_true_phys + v_bem_val
+
                     if is_cnn:
                         v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
                         v_eff_t, alpha_t = v_true_phys[:, 0], v_true_phys[:, 1]
@@ -186,12 +210,9 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                 rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
                 rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
                 
-                # Protection division par zéro
-                mean_fn_t = torch.mean(torch.abs(Fn_t))
-                mean_ft_t = torch.mean(torch.abs(Ft_t))
-                
-                rel_fn = (rmse_fn / mean_fn_t * 100) if mean_fn_t > 0 else 0
-                rel_ft = (rmse_ft / mean_ft_t * 100) if mean_ft_t > 0 else 0
+                # Protection division par zéro                
+                rel_fn = (rmse_fn / global_mean_fn * 100) if global_mean_fn > 0 else 0
+                rel_ft = (rmse_ft / global_mean_ft * 100) if global_mean_ft > 0 else 0
                 
                 cv_phys_scores.append((rel_fn + rel_ft).item())
 
@@ -208,7 +229,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     best_cv_phys = study_model.best_trial.user_attrs["cv_score_phys_percent"]
     
     final_params = {**ae_params, **study_model.best_params}
-    final_params["Total_Score_CV"] = best_cv_phys # Ajout au JSON !
+    final_params["Total_Score_CV"] = best_cv_phys # Ajout au JSON
     
     target_json = f"hyperparametres/{entree.lower()}_hyperparameters.json"
     if os.path.exists(target_json):

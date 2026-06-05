@@ -368,7 +368,7 @@ class PhysicsInformedLoss(nn.Module):
         self.polar_surrogate = polar_surrogate.to(device)
         self.mse = nn.MSELoss()
 
-    def forward(self, z_pred, v_true_norm):
+    def forward(self, z_pred, v_true_norm, v_bem_phys=None):
         v_pred_norm = self.ae_model.decode(z_pred)
         loss_v = self.mse(v_pred_norm, v_true_norm)
         
@@ -377,6 +377,10 @@ class PhysicsInformedLoss(nn.Module):
         v_pred_phys = self.scaler_v.inverse_transform(v_pred_norm)
         v_true_phys = self.scaler_v.inverse_transform(v_true_norm)
         
+        if v_bem_phys is not None:
+            v_pred_phys = v_pred_phys + v_bem_phys
+            v_true_phys = v_true_phys + v_bem_phys
+            
         is_cnn = (len(v_pred_phys.shape) == 4)
         if is_cnn:
             v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
@@ -385,7 +389,6 @@ class PhysicsInformedLoss(nn.Module):
             v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
             v_eff_t, alpha_t = v_true_phys[:, 0::2], v_true_phys[:, 1::2]
             
-        # Plus besoin d'expand ici, la fonction convert_v_to_f_torch s'en charge !
         f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, self.r, self.c, self.polar_surrogate)
         f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, self.r, self.c, self.polar_surrogate)
         
