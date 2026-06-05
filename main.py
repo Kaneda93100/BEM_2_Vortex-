@@ -26,8 +26,8 @@ def main():
     # =========================================================================
     # Il faut modifier ces booléens pour lancer uniquement sa partie.
     
-    RUN_GROUP_1 = False   # Groupe 1 : Tous les GV (MLP) + LightGBM
-    RUN_GROUP_2 = True  # Groupe 2 : Uniquement GM_1_f (CNN)
+    RUN_GROUP_1 = True   # Groupe 1 : Tous les GV (MLP) + LightGBM
+    RUN_GROUP_2 = False  # Groupe 2 : Uniquement GM_1_f (CNN)
     RUN_GROUP_3 = False  # Groupe 3 : Uniquement GM_1_v (CNN)
 
     global_start = time.time()
@@ -131,7 +131,7 @@ def main():
         print(f"{'#'*80}")
         
         gm_f_experiments = [
-            {'entree': 'GM', 'res': '1', 'inter': 'f', 'trials': 1, 'dims': [0, 128, 256, 512]}
+            {'entree': 'GM', 'res': '1', 'inter': 'f', 'trials': 50, 'dims': [0, 128, 256, 512]}
         ]
         
         for exp in gm_f_experiments:
