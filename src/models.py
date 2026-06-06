@@ -264,23 +264,21 @@ class TorchScaler:
 
 
 class DecoderLoss(nn.Module):
-    """ 
-    Loss pour la Stratégie 'f'. 
-    Calcule la MSE entre la vérité terrain et la prédiction DÉCODÉE.
-    """
-    def __init__(self, ae_model):
+    """ Loss pour la stratégie 'f' : MSE entre les forces décodées et les forces normalisées réelles """
+    def __init__(self, ae_model=None):
         super().__init__()
         self.ae_model = ae_model
         self.mse = nn.MSELoss()
 
     def forward(self, z_pred, y_true_norm):
-        y_pred_norm = self.ae_model.decode(z_pred)
+        # Si un AE est fourni, on décode. Sinon, z_pred est déjà la prédiction finale (D0).
+        if self.ae_model is not None:
+            y_pred_norm = self.ae_model.decode(z_pred)
+        else:
+            y_pred_norm = z_pred
+            
         return self.mse(y_pred_norm, y_true_norm)
 
-class DummyAE(nn.Module):
-    """ Faux AE utilisé quand D0 est sélectionné, pour que la Loss fonctionne sans modification. """
-    def decode(self, z): 
-        return z
 
 class PolarSurrogate(nn.Module):
     """ 
@@ -369,7 +367,12 @@ class PhysicsInformedLoss(nn.Module):
         self.mse = nn.MSELoss()
 
     def forward(self, z_pred, v_true_norm, v_bem_phys=None):
-        v_pred_norm = self.ae_model.decode(z_pred)
+
+        if self.ae_model is not None:
+            v_pred_norm = self.ae_model.decode(z_pred)
+        else:
+            v_pred_norm = z_pred
+            
         loss_v = self.mse(v_pred_norm, v_true_norm)
         
         if self.lambda_val == 0.0: return loss_v

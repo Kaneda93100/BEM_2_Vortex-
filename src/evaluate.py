@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
 from sklearn.model_selection import KFold
-from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, DummyAE, TorchScaler, convert_v_to_f_torch
+from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
 from .data_loader import format_data
 from .physics import convert_v_to_f, get_geometry
 from tqdm import tqdm
@@ -107,9 +107,17 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         # Création du tenseur V_BEM_phys pour le Train complet
         if str(residuelle) == '1':
             _, Y_train_abs = format_data(df_train, entree, '0', inter, is_train=False, device=device)
-            V_SVEN_phys_tr = scaler_v_torch.inverse_transform(Y_train_abs)
+            
+            # --- CORRECTION : Utilisation du scaler ABSOLU pour dénormaliser les absolus ---
+            with open(f"scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: 
+                scaler_v_abs = pickle.load(f_abs)
+            scaler_v_abs_torch = TorchScaler(scaler_v_abs, device)
+            
+            V_SVEN_phys_tr = scaler_v_abs_torch.inverse_transform(Y_train_abs)
             Delta_V_phys_tr = scaler_v_torch.inverse_transform(Y_train)
             V_BEM_phys_train = V_SVEN_phys_tr - Delta_V_phys_tr
+        else:
+            V_BEM_phys_train = None
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
@@ -133,7 +141,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         current_ae.eval()
     else:
         latent_dim = 0
-        current_ae = DummyAE()
+        current_ae = None
 
     target_dim = latent_dim if use_ae else Y_train.shape[1]
 

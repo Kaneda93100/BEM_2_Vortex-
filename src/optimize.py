@@ -6,7 +6,7 @@ import os
 import numpy as np
 import pickle
 from sklearn.model_selection import KFold
-from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, DummyAE, TorchScaler, convert_v_to_f_torch
+from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
 from .data_loader import format_data
 from .physics import get_geometry
 from tqdm import tqdm
@@ -64,7 +64,13 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         # Création du tenseur V_BEM_phys pour la stratégie 1_v
         if str(residuelle) == '1':
             _, Y_full_abs = format_data(df_train, entree, '0', inter, is_train=True, device=device)
-            V_SVEN_phys_full = scaler_v_torch.inverse_transform(Y_full_abs)
+            
+            # Utilisation du scaler ABSOLU pour dénormaliser les cibles absolues
+            with open(f"scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: 
+                scaler_v_abs = pickle.load(f_abs)
+            scaler_v_abs_torch = TorchScaler(scaler_v_abs, device)
+            
+            V_SVEN_phys_full = scaler_v_abs_torch.inverse_transform(Y_full_abs)
             Delta_V_phys_full = scaler_v_torch.inverse_transform(Y_full)
             V_BEM_phys_full = V_SVEN_phys_full - Delta_V_phys_full
     else:
@@ -79,7 +85,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         use_ae = False
         latent_dim = 0
         ae_params = {"use_autoencoder": False, "latent_dim": 0}
-        current_ae = DummyAE()
+        current_ae = None
     else:
         ae_master_path = "hyperparametres/ae_hyperparameters.json"
         ae_weights_path = f"models/ae/ae_{saved_name}.pth"
@@ -105,7 +111,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         if not use_ae:
             latent_dim = 0
             ae_params = {"use_autoencoder": False, "latent_dim": 0}
-            current_ae = DummyAE()
+            current_ae = None
 
     # --- 2. Objectif Optuna ---
     def objective_model(trial):
