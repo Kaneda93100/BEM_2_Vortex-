@@ -49,11 +49,9 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
     df_preds = pd.DataFrame(records)
     return pd.merge(df_test, df_preds, on=['r', 'theta', 'yaw', 'Fn_SVEN', 'Ft_SVEN'])
 
-
 def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
-    # === INITIALISATION GLOBALE POUR ÉVITER LE UNBOUND LOCAL ERROR ===
     V_BEM_phys_train = None
-    # =================================================================
+    F_SVEN_phys_train = None
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     base_model_name = f"{entree}_{residuelle}_{inter}"
@@ -62,7 +60,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     is_cnn = (entree == 'GM')
     
     print(f"\n{'='*50}")
-    print(f" ÉVALUATION EXHAUSTIVE (CV2 1000 Epoques + TEST) : {saved_name}")
+    print(f" ÉVALUATION EXHAUSTIVE (CV2 + TEST) : {saved_name}")
     print(f"{'='*50}")
     
     hp_path = f"hyperparametres/{entree.lower()}_hyperparameters.json"
@@ -78,13 +76,17 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     global_mean_fn_train = df_train['Fn_SVEN'].abs().mean()
     global_mean_ft_train = df_train['Ft_SVEN'].abs().mean()
 
-    # --- 1. PRÉPARATION SCALERS ET Polar (Pour l'éval physique sur GPU) ---
     if inter == 'v':
+        _, Y_f_abs_tr = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        with open(f"scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
+        
         scaler_v_torch = TorchScaler(scaler_v, device)
         scaler_f_torch = TorchScaler(scaler_f, device)
+        scaler_f_abs_torch = TorchScaler(scaler_f_abs, device)
         
+        F_SVEN_phys_train = scaler_f_abs_torch.inverse_transform(Y_f_abs_tr)
         polar_surrogate = PolarSurrogate(device=device).to(device)
 
         geom = get_geometry()
@@ -104,25 +106,18 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
             c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
 
-        # Création du tenseur V_BEM_phys pour le Train complet
         if str(residuelle) == '1':
             _, Y_train_abs = format_data(df_train, entree, '0', inter, is_train=False, device=device)
-            
-            # --- CORRECTION : Utilisation du scaler ABSOLU pour dénormaliser les absolus ---
-            with open(f"scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: 
-                scaler_v_abs = pickle.load(f_abs)
+            with open(f"scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: scaler_v_abs = pickle.load(f_abs)
             scaler_v_abs_torch = TorchScaler(scaler_v_abs, device)
             
             V_SVEN_phys_tr = scaler_v_abs_torch.inverse_transform(Y_train_abs)
             Delta_V_phys_tr = scaler_v_torch.inverse_transform(Y_train)
             V_BEM_phys_train = V_SVEN_phys_tr - Delta_V_phys_tr
-        else:
-            V_BEM_phys_train = None
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
 
-    # --- 2. GESTION DE L'AUTO-ENCODEUR ---
     use_ae = best_params.get('use_autoencoder', False) and suffixe != 'D0'
     Y_train_target = Y_train
     
@@ -150,19 +145,20 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     else:
         criterion = DecoderLoss(current_ae)
 
-
     # =========================================================================
-    # PHASE 1 : VALIDATION CROISÉE SUR 1000 ÉPOQUES (CV2)
+    # PHASE 1 : VALIDATION CROISÉE SUR 1000 ÉPOQUES AVEC HISTORIQUE COMPLET
     # =========================================================================
     print("\n   [1/2] Lancement de la Cross-Validation (3 Folds x 1000 époques)...")
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
-    cv2_phys_scores = []
+    
+    eval_step = 10
+    epochs_axis = np.arange(eval_step, 1001, eval_step)
+    cv_history_matrix = np.zeros((3, len(epochs_axis)))
     
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())):
         X_tr_cv, Y_tr_cv = X_train[train_idx], Y_train_target[train_idx]
         X_val_cv, Y_val_cv = X_train[val_idx], Y_train_target[val_idx]
         
-        # Extraction locale sécurisée
         v_bem_tr_cv = V_BEM_phys_train[train_idx] if V_BEM_phys_train is not None else None
         v_bem_val_cv = V_BEM_phys_train[val_idx] if V_BEM_phys_train is not None else None
         
@@ -173,8 +169,6 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                                n_layers=best_params['n_layers'], base_filters=best_params['base_filters'], dropout_rate=best_params['dropout_rate'], device=device).to(device)
         
         optimizer_cv = torch.optim.Adam(model_cv.parameters(), lr=best_params['lr'])
-        best_train_loss_cv = float('inf')
-        best_model_weights_cv = None
         
         pbar_cv = tqdm(range(1000), desc=f"   -> Fold {fold+1}/3", leave=False)
         for epoch in pbar_cv:
@@ -189,72 +183,69 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             loss_cv.backward()
             optimizer_cv.step()
             
-            if loss_cv.item() < best_train_loss_cv:
-                best_train_loss_cv = loss_cv.item()
-                best_model_weights_cv = copy.deepcopy(model_cv.state_dict())
-                
-        if best_model_weights_cv is not None:
-            model_cv.load_state_dict(best_model_weights_cv)
-            
-        # Évaluation Physique sur le Fold
-        model_cv.eval()
-        with torch.no_grad():
-            preds_norm = current_ae.decode(model_cv(X_val_cv)) if use_ae else model_cv(X_val_cv)
-            
-            if inter == 'v':
-                v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
-                v_true_phys = scaler_v_torch.inverse_transform(Y_val_cv)
-
-                if v_bem_val_cv is not None:
-                    v_pred_phys = v_pred_phys + v_bem_val_cv
-                    v_true_phys = v_true_phys + v_bem_val_cv
-
-                if is_cnn:
-                    v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
-                    v_eff_t, alpha_t = v_true_phys[:, 0], v_true_phys[:, 1]
-                else:
-                    v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
-                    v_eff_t, alpha_t = v_true_phys[:, 0::2], v_true_phys[:, 1::2]
+            if (epoch + 1) % eval_step == 0:
+                model_cv.eval()
+                with torch.no_grad():
+                    preds_norm = current_ae.decode(model_cv(X_val_cv)) if use_ae else model_cv(X_val_cv)
                     
-                f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
-                f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t, r_tensor, c_tensor, polar_surrogate)
-                
-                if is_cnn:
-                    f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
-                    f_true_phys = f_true_phys.permute(0, 3, 1, 2)
-                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                    Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
-                else:
-                    Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                    Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
-            else:
-                f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
-                f_true_phys = scaler_f_torch.inverse_transform(Y_val_cv)
-                
-                if is_cnn:
-                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                    Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
-                else:
-                    Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
-                    Fn_t, Ft_t = f_true_phys[:, 0::2], f_true_phys[:, 1::2]
+                    if inter == 'v':
+                        v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
+                        if v_bem_val_cv is not None: v_pred_phys = v_pred_phys + v_bem_val_cv
+
+                        if is_cnn:
+                            v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
+                        else:
+                            v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
+                            
+                        f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
+                        f_sven_val_cv = F_SVEN_phys_train[val_idx]
+                        
+                        if is_cnn:
+                            f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
+                            Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                            Fn_t, Ft_t = f_sven_val_cv[:, 0], f_sven_val_cv[:, 1]
+                        else:
+                            Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
+                            Fn_t, Ft_t = f_sven_val_cv[:, 0::2], f_sven_val_cv[:, 1::2]
+                    else:
+                        f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
+                        f_true_phys = scaler_f_torch.inverse_transform(Y_val_cv)
+                        if is_cnn:
+                            Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                            Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
+                        else:
+                            Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
+                            Fn_t, Ft_t = f_true_phys[:, 0::2], f_true_phys[:, 1::2]
+                            
+                    rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
+                    rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
+                    rel_fn = (rmse_fn / global_mean_fn_train * 100) if global_mean_fn_train > 0 else 0
+                    rel_ft = (rmse_ft / global_mean_ft_train * 100) if global_mean_ft_train > 0 else 0
                     
-            rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
-            rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
-            rel_fn = (rmse_fn / global_mean_fn_train * 100) if global_mean_fn_train > 0 else 0
-            rel_ft = (rmse_ft / global_mean_ft_train * 100) if global_mean_ft_train > 0 else 0
-            
-            score_fold = (rel_fn + rel_ft).item()
-            cv2_phys_scores.append(score_fold)
-            print(f"      Score Physique (Fold {fold+1}/3) : {score_fold:.2f}%")
+                    step_idx = epoch // eval_step
+                    cv_history_matrix[fold, step_idx] = (rel_fn + rel_ft).item()
 
-    score_cv2_final = sum(cv2_phys_scores) / len(cv2_phys_scores)
-    print(f"   [RESULTAT CV2] Erreur Relative Moyenne (1000 Epoques) : {score_cv2_final:.2f}%\n")
-
+    # Paramètre de pénalisation de la variance entre fold
+    gamma = 0.0  
+    
+    mean_cv_curve = cv_history_matrix.mean(axis=0)
+    std_cv_curve = cv_history_matrix.std(axis=0)
+    
+    composite_score_curve = mean_cv_curve + (gamma * std_cv_curve)
+    best_step_idx = np.argmin(composite_score_curve)
+    
+    best_epoch_global = int(epochs_axis[best_step_idx])
+    score_cv2_final = mean_cv_curve[best_step_idx] 
+    variance_finale = std_cv_curve[best_step_idx]
+    
+    print(f"   [OK] Courbe de Cross-Validation stabilisée.")
+    print(f"   -> Époque optimale identifiée (Argmin composite, gamma={gamma}) : {best_epoch_global} époques")
+    print(f"   -> Erreur Relative Moyenne à cet optimum : {score_cv2_final:.2f}% (± {variance_finale:.2f}%)")
 
     # =========================================================================
-    # PHASE 2 : ENTRAÎNEMENT FINAL SUR TOUT X_TRAIN ET ÉVALUATION TEST
+    # PHASE 2 : ENTRAÎNEMENT BRIDÉ À LA BEST_EPOCH ET ÉVALUATION TEST
     # =========================================================================
-    print("   [2/2] Entraînement du Modèle Final (100% Data, 1000 époques)...")
+    print(f"\n   [2/2] Entraînement du Modèle Final (100% Data, bridé à {best_epoch_global} époques)...")
     if entree == 'GV':
         model_final = TurbineMLP(X_train.shape[1], target_dim, best_params['n_layers'], best_params['n_neurons'], best_params['dropout_rate'], device=device).to(device)
     elif entree == 'GM':
@@ -265,7 +256,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     best_train_loss = float('inf')
     best_model_weights = None
     
-    pbar = tqdm(range(1000), desc=f"   Training Final")
+    pbar = tqdm(range(best_epoch_global), desc=f"   Training Final")
     for epoch in pbar:
         model_final.train()
         optimizer_final.zero_grad()
@@ -286,7 +277,6 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     if best_model_weights is not None:
         model_final.load_state_dict(best_model_weights)
 
-    # --- INFERENCE SUR LE SET DE TEST  ---
     model_final.eval()
     with torch.no_grad(): 
         preds_raw = model_final(X_test)
@@ -312,7 +302,6 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     score_total_test = rel_fn + rel_ft
     wd_score = wasserstein_distance(Fn_s, Fn_p) + wasserstein_distance(Ft_s, Ft_p)
     
-    # --- ENREGISTREMENT RÉCAPITULATIF FINAL ---
     results_detail = {
         "Modele": saved_name, "Strat_Entree": entree, "Residuelle": residuelle, "Intermediaire": inter, "Suffixe": suffixe,
         "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), 
@@ -320,6 +309,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         "Total_Score_Test (%)": round(score_total_test, 2),
         "Total_Score_CV_150 (%)": round(best_params.get("Total_Score_CV", -1.0), 2),
         "Total_Score_CV2_1000 (%)": round(score_cv2_final, 2),
+        "CV2_Variance (%)": round(variance_finale, 2),
+        "Best_Epoch": best_epoch_global,
         "Wasserstein_Dist": round(wd_score, 4)
     }
     
@@ -334,8 +325,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     
     print(f"   [RÉSUMÉ DES SCORES PHYSIQUES]")
     print(f"   -> Optuna CV (150 ep.) : {best_params.get('Total_Score_CV', -1.0):.2f}%")
-    print(f"   -> Final CV  (1000 ep.): {score_cv2_final:.2f}%")
-    print(f"   -> Final Test(1000 ep.): {score_total_test:.2f}%")
+    print(f"   -> Final CV  (Argmin): {score_cv2_final:.2f}% (à l'époque {best_epoch_global}, Var: {variance_finale:.2f}%)")
+    print(f"   -> Final Test(bridé) : {score_total_test:.2f}%")
 
     if score_total_test < 16.0:
         os.makedirs(f"models/{entree}", exist_ok=True)
@@ -354,6 +345,9 @@ def evaluate_baselines(df_test):
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
     score_total = rel_fn + rel_ft
+    
+    # NOUVEAU : Calcul de la distance de Wasserstein pour le modèle physique BEM trivial (résidu nul)
+    wd_score_baseline = wasserstein_distance(Fn_s, Fn_b) + wasserstein_distance(Ft_s, Ft_b)
 
     results_detail = {
         "Modele": "BASELINE_BEM", "Strat_Entree": "BEM", "Residuelle": "-", "Intermediaire": "-", "Suffixe": "-",
@@ -362,7 +356,9 @@ def evaluate_baselines(df_test):
         "Total_Score_Test (%)": round(score_total, 2), 
         "Total_Score_CV_150 (%)": -1.0, 
         "Total_Score_CV2_1000 (%)": -1.0, 
-        "Wasserstein_Dist": -1.0
+        "CV2_Variance (%)": -1.0,
+        "Best_Epoch": "-",
+        "Wasserstein_Dist": round(wd_score_baseline, 4) # Enregistrement de la WD réelle
     }
     
     os.makedirs("performance", exist_ok=True)
@@ -374,4 +370,4 @@ def evaluate_baselines(df_test):
     else:
         df_recap = pd.DataFrame([results_detail])
     df_recap.to_csv(recap_path, index=False)
-    print(f"   Baseline BEM enregistrée. Score : {score_total:.2f}%")
+    print(f"   Baseline BEM enregistrée. Score : {score_total:.2f}% | WD : {wd_score_baseline:.4f}")
