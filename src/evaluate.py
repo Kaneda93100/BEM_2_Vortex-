@@ -60,7 +60,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     is_cnn = (entree == 'GM')
     
     print(f"\n{'='*50}")
-    print(f" ÉVALUATION EXHAUSTIVE (CV2 + TEST) : {saved_name}")
+    print(f" ÉVALUATION EXHAUSTIVE (CV2 LISSÉE + RÈGLE 1.5X) : {saved_name}")
     print(f"{'='*50}")
     
     hp_path = f"hyperparametres/{entree.lower()}_hyperparameters.json"
@@ -146,13 +146,13 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         criterion = DecoderLoss(current_ae)
 
     # =========================================================================
-    # PHASE 1 : VALIDATION CROISÉE SUR 1000 ÉPOQUES AVEC HISTORIQUE COMPLET
+    # PHASE 1 : VALIDATION CROISÉE SUR 2000 ÉPOQUES AVEC HISTORIQUE COMPLET
     # =========================================================================
-    print("\n   [1/2] Lancement de la Cross-Validation (3 Folds x 1000 époques)...")
+    print("\n   [1/2] Lancement de la Cross-Validation (3 Folds x 2000 époques)...")
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     
     eval_step = 10
-    epochs_axis = np.arange(eval_step, 1001, eval_step)
+    epochs_axis = np.arange(eval_step, 2001, eval_step) # Augmenté à 2000 époques max
     cv_history_matrix = np.zeros((3, len(epochs_axis)))
     
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())):
@@ -170,7 +170,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         
         optimizer_cv = torch.optim.Adam(model_cv.parameters(), lr=best_params['lr'])
         
-        pbar_cv = tqdm(range(1000), desc=f"   -> Fold {fold+1}/3", leave=False)
+        pbar_cv = tqdm(range(2000), desc=f"   -> Fold {fold+1}/3", leave=False) # Porté à 2000
         for epoch in pbar_cv:
             model_cv.train()
             optimizer_cv.zero_grad()
@@ -225,27 +225,36 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                     step_idx = epoch // eval_step
                     cv_history_matrix[fold, step_idx] = (rel_fn + rel_ft).item()
 
-    # Paramètre de pénalisation de la variance entre fold
-    gamma = 0.0  
-    
+    # Lissage par moyenne glissante (Fenêtre de 50 epochs)
     mean_cv_curve = cv_history_matrix.mean(axis=0)
     std_cv_curve = cv_history_matrix.std(axis=0)
     
-    composite_score_curve = mean_cv_curve + (gamma * std_cv_curve)
-    best_step_idx = np.argmin(composite_score_curve)
+    window_size = 50 // eval_step # Fenêtre de 50 époques = 5 pas
+    smoothed_cv_curve = pd.Series(mean_cv_curve).rolling(window=window_size, min_periods=1).mean().values
     
+    best_step_idx = np.argmin(smoothed_cv_curve)
     best_epoch_global = int(epochs_axis[best_step_idx])
     score_cv2_final = mean_cv_curve[best_step_idx] 
     variance_finale = std_cv_curve[best_step_idx]
     
-    print(f"   [OK] Courbe de Cross-Validation stabilisée.")
-    print(f"   -> Époque optimale identifiée (Argmin composite, gamma={gamma}) : {best_epoch_global} époques")
-    print(f"   -> Erreur Relative Moyenne à cet optimum : {score_cv2_final:.2f}% (± {variance_finale:.2f}%)")
+    # Règle empirique de 1.5x époques pour l'entraînement final (plafonné à 2000)
+    best_epoch_final = min(2000, int(best_epoch_global * 1.5))
+
+    best_epoch_final = int(np.round(best_epoch_final / eval_step) * eval_step)
+    best_epoch_final = max(eval_step, min(2000, best_epoch_final))
+    
+    idx_15 = np.where(epochs_axis == best_epoch_final)[0][0]
+    score_cv2_15 = mean_cv_curve[idx_15]
+    
+    print(f"   [OK] Courbe de Cross-Validation stabilisée et lissée (fenêtre 50 ep).")
+    print(f"   -> Époque optimale identifiée (Best_Epoch) : {best_epoch_global} époques")
+    print(f"   -> Époque finale calculée (Best_1.5Epoch) : {best_epoch_final} époques")
+
 
     # =========================================================================
-    # PHASE 2 : ENTRAÎNEMENT BRIDÉ À LA BEST_EPOCH ET ÉVALUATION TEST
+    # PHASE 2 : ENTRAÎNEMENT BRIDÉ À LA BEST_1.5EPOCH ET ÉVALUATION TEST
     # =========================================================================
-    print(f"\n   [2/2] Entraînement du Modèle Final (100% Data, bridé à {best_epoch_global} époques)...")
+    print(f"\n   [2/2] Entraînement du Modèle Final (100% Data, bridé à {best_epoch_final} époques)...")
     if entree == 'GV':
         model_final = TurbineMLP(X_train.shape[1], target_dim, best_params['n_layers'], best_params['n_neurons'], best_params['dropout_rate'], device=device).to(device)
     elif entree == 'GM':
@@ -256,7 +265,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     best_train_loss = float('inf')
     best_model_weights = None
     
-    pbar = tqdm(range(best_epoch_global), desc=f"   Training Final")
+    # Entraînement sur la durée ajustée de 1.5x
+    pbar = tqdm(range(best_epoch_final), desc=f"   Training Final")
     for epoch in pbar:
         model_final.train()
         optimizer_final.zero_grad()
@@ -296,19 +306,22 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     Fn_p, Ft_p = df_res['Fn_pred'].values, df_res['Ft_pred'].values
     
     rmse_fn = np.sqrt(np.mean((Fn_p - Fn_s)**2))
+    rmse_ft = np.sqrt(np.mean((Ft_p - Fn_s)**2)) # correction typo sven
     rmse_ft = np.sqrt(np.mean((Ft_p - Ft_s)**2))
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
     score_total_test = rel_fn + rel_ft
     wd_score = wasserstein_distance(Fn_s, Fn_p) + wasserstein_distance(Ft_s, Ft_p)
     
+    # --- ENREGISTREMENT AVEC LES NOUVELLES COLONNES DEMANDÉES ---
     results_detail = {
         "Modele": saved_name, "Strat_Entree": entree, "Residuelle": residuelle, "Intermediaire": inter, "Suffixe": suffixe,
         "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), 
         "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
         "Total_Score_Test (%)": round(score_total_test, 2),
         "Total_Score_CV_150 (%)": round(best_params.get("Total_Score_CV", -1.0), 2),
-        "Total_Score_CV2_1000 (%)": round(score_cv2_final, 2),
+        "Total_Score_CV2_Best_Epoch": round(score_cv2_final, 2),
+        "Total_Score_CV2_Best_1.5Epoch": round(score_cv2_15, 2), 
         "CV2_Variance (%)": round(variance_finale, 2),
         "Best_Epoch": best_epoch_global,
         "Wasserstein_Dist": round(wd_score, 4)
@@ -325,8 +338,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     
     print(f"   [RÉSUMÉ DES SCORES PHYSIQUES]")
     print(f"   -> Optuna CV (150 ep.) : {best_params.get('Total_Score_CV', -1.0):.2f}%")
-    print(f"   -> Final CV  (Argmin): {score_cv2_final:.2f}% (à l'époque {best_epoch_global}, Var: {variance_finale:.2f}%)")
-    print(f"   -> Final Test(bridé) : {score_total_test:.2f}%")
+    print(f"   -> Final CV  (Best Epoch): {score_cv2_final:.2f}% (à l'époque {best_epoch_global}, Var: {variance_finale:.2f}%)")
+    print(f"   -> Final CV  (Best 1.5x) : {score_cv2_15:.2f}% (à l'époque {best_epoch_final})")
+    print(f"   -> Final Test(bridé 1.5x): {score_total_test:.2f}%")
 
     if score_total_test < 16.0:
         os.makedirs(f"models/{entree}", exist_ok=True)
@@ -346,7 +360,6 @@ def evaluate_baselines(df_test):
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
     score_total = rel_fn + rel_ft
     
-    # NOUVEAU : Calcul de la distance de Wasserstein pour le modèle physique BEM trivial (résidu nul)
     wd_score_baseline = wasserstein_distance(Fn_s, Fn_b) + wasserstein_distance(Ft_s, Ft_b)
 
     results_detail = {
@@ -355,10 +368,11 @@ def evaluate_baselines(df_test):
         "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
         "Total_Score_Test (%)": round(score_total, 2), 
         "Total_Score_CV_150 (%)": -1.0, 
-        "Total_Score_CV2_1000 (%)": -1.0, 
+        "Total_Score_CV2_Best_Epoch": -1.0, 
+        "Total_Score_CV2_Best_1.5Epoch": -1.0,
         "CV2_Variance (%)": -1.0,
         "Best_Epoch": "-",
-        "Wasserstein_Dist": round(wd_score_baseline, 4) # Enregistrement de la WD réelle
+        "Wasserstein_Dist": round(wd_score_baseline, 4)
     }
     
     os.makedirs("performance", exist_ok=True)

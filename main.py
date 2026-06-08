@@ -26,8 +26,8 @@ def main():
     # Il faut modifier ces booléens pour lancer uniquement sa partie.
     
     RUN_GROUP_1 = True   # Groupe 1 : Tous les GV (MLP) + LightGBM
-    RUN_GROUP_2 = False  # Groupe 2 : Uniquement GM_1_f (CNN)
-    RUN_GROUP_3 = False  # Groupe 3 : Uniquement GM_1_v (CNN)
+    RUN_GROUP_2 = True  # Groupe 2 : Uniquement GM_1_f (CNN)
+    RUN_GROUP_3 = True  # Groupe 3 : Uniquement GM_1_v (CNN)
 
     global_start = time.time()
     
@@ -75,14 +75,14 @@ def main():
                 if dim > 0:
                     logs.write(f"\n   [1/3] Vérification/Création Auto-encodeur ({dim} dim)...\n")
                     print(f"   [1/3] Vérification/Création Auto-encodeur ({dim} dim)...")
-                    optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, n_trials=10)
+                    #optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, n_trials=10)
                 else:
                     logs.write(f"\n   [1/3] Mode D0 : Pas d'Auto-encodeur.\n")
                     print(f"   [1/3] Mode D0 : Pas d'Auto-encodeur.")
                 
                 logs.write(f"\n   [2/3] Optimisation du Modèle Prédictif...\n")
                 print(f"   [2/3] Optimisation du Modèle Prédictif...")
-                optimize(df_train, entree=e, residuelle=r, inter=i, suffixe=suffixe, n_trials=n_trials)
+                # optimize(df_train, entree=e, residuelle=r, inter=i, suffixe=suffixe, n_trials=n_trials)
                 
                 logs.write(f"\n   [3/3] Évaluation Finale...\n")
                 print(f"   [3/3] Évaluation Finale...")
@@ -139,14 +139,14 @@ def main():
                 if dim > 0:
                     logs.write(f"\n   [1/3] Vérification/Création Auto-encodeur ({dim} dim)...\n")
                     print(f"   [1/3] Vérification/Création Auto-encodeur ({dim} dim)...")
-                    optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, n_trials=25)
+                    # optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, n_trials=25)
                 else:
                     logs.write(f"\n   [1/3] Mode D0 : Pas d'Auto-encodeur.\n")
                     print(f"   [1/3] Mode D0 : Pas d'Auto-encodeur.")
                 
                 logs.write(f"\n   [2/3] Optimisation du Modèle Prédictif...\n")
                 print(f"   [2/3] Optimisation du Modèle Prédictif...")
-                optimize(df_train, entree=e, residuelle=r, inter=i, suffixe=suffixe, n_trials=n_trials)
+                # optimize(df_train, entree=e, residuelle=r, inter=i, suffixe=suffixe, n_trials=n_trials)
                 
                 logs.write(f"\n   [3/3] Évaluation Finale...\n")
                 print(f"   [3/3] Évaluation Finale...")
@@ -186,14 +186,14 @@ def main():
                 if dim > 0:
                     logs.write(f"\n   [1/3] Vérification/Création Auto-encodeur ({dim} dim)...\n")  
                     print(f"   [1/3] Vérification/Création Auto-encodeur ({dim} dim)...")
-                    optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, n_trials=25)
+                    # optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, n_trials=25)
                 else:
                     logs.write(f"\n   [1/3] Mode D0 : Pas d'Auto-encodeur.\n")
                     print(f"   [1/3] Mode D0 : Pas d'Auto-encodeur.")
                 
                 logs.write(f"\n   [2/3] Optimisation du Modèle Prédictif...\n")
                 print(f"   [2/3] Optimisation du Modèle Prédictif...")
-                optimize(df_train, entree=e, residuelle=r, inter=i, suffixe=suffixe, n_trials=n_trials)
+                # optimize(df_train, entree=e, residuelle=r, inter=i, suffixe=suffixe, n_trials=n_trials)
                 
                 logs.write(f"\n   [3/3] Évaluation Finale...\n")
                 print(f"   [3/3] Évaluation Finale...")
