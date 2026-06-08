@@ -25,70 +25,100 @@ from src.physics import convert_v_to_f
 
 datas_dir = P.Path('DataSet/Final_DS')
 
-def format_data(df, entree, res, inter) :
+def format_data(df, model_name, res) :
+
+    if 'G_' in model_name :
+        entree = 'G'
+    else :
+        entree = 'L'
+    if '_f_' in model_name :
+        inter = 'f'
+    else :
+        inter = 'v'
+    
 
     res_str = str(res)
 
-    # 1. Sélection des variables intermédiaires
-    if inter == 'f':
-        cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
-    elif inter == 'v':
-        cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
-    else:
-        raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
+    ## Encodage trigonométrique
+    radians = np.radians(df['theta'])
+    df['cos_theta'] = np.cos(radians)
+    df['sin_theta'] = np.sin(radians) 
+    
+    if '_nc' in model_name :
+        
+        # 1. Sélection des variables intermédiaires
+        if inter == 'f':
+            cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
+        elif inter == 'v':
+            cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
+        else:
+            raise ValueError(f"Intermédiaire '{inter}' non reconnu.")
+        
+        # 2. Sélection des données selon la stratégie
+        if entree == 'L':
+            X_list, Y_list = [], []
+            indexs = df[cols_sven].index
+            if res_str == '1': # Stratégie résiduelle
+                    Y_np = df[cols_sven].values - df[cols_bem].values
+                    X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
+            else: # Stratégie directe
+                    Y_np = df[cols_sven].values
+                    X_np = df[['yaw', 'TSR','r', 'cos_theta', 'sin_theta']].values
 
-    # 2. Sélection des données selon la stratégie
-    if entree == 'L':
-        indexs = df[cols_sven].index
-        if res_str == '1': # Stratégie résiduelle
-            if ponderate == True : 
-                Ypond = []
-                for i in range(len(cols_sven))  :
-                    Ypond.append((df[cols_sven[i]].values - df[cols_bem[i]].values)*df['r'][indexs].values)
-                Y_np = np.array(Ypond).T
-                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
-            else : 
-                Y_np = df[cols_sven].values - df[cols_bem].values
-                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
-        else: # Stratégie directe
-            if ponderate == True : 
-                Ypond = []
-                for i in range(len(cols_sven))  :
-                    Ypond.append((df[cols_sven[i]].values)*df['r'][indexs].values)
-                Y_np = np.array(Ypond).T
-                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw'] + cols_bem].values
-            else : 
-                Y_np = df[cols_sven].values
-                X_np = df[['r', 'cos_theta', 'sin_theta', 'yaw']].values
-    elif entree == 'G': 
-        grouped = df.groupby('yaw')
-        X_list, Y_list = [], []
-        for y_val, group in grouped:
-            # Tri strict pour que le vecteur soit toujours dans le même ordre (theta puis r)
-            group = group.sort_values(['theta', 'r'])
-            index_group = group.index
-
-            if ponderate == True :
-                Ypond_sven = []
-                Ypond_bem = []
-                for i in range(len(cols_sven)) :
-                    Ypond_sven.append(group[cols_sven[i]].values*df['r'][index_group].values)
-                    Ypond_bem.append(group[cols_bem[i]].values*df['r'][index_group].values) 
-                y_sven = (np.array(Ypond_sven)).flatten()
-                y_bem = (np.array(Ypond_bem)).flatten()
-            else : 
+        elif entree == 'G': 
+            grouped = df.groupby('yaw')
+            X_list, Y_list = [], []
+            for y_val, group in grouped:
+                # Tri strict pour que le vecteur soit toujours dans le même ordre (theta puis r)
+                group = group.sort_values(['theta', 'r'])
+                index_group = group.index
                 y_sven = group[cols_sven].values.flatten()
                 y_bem = group[cols_bem].values.flatten() 
-            
-            if res_str == '1':
-                Y_val = y_sven - y_bem
-                X_val = np.concatenate(([y_val], y_bem)) 
-            else:
-                Y_val = y_sven
-                X_val = np.array([y_val])    
-    return 
+                if res_str == '1':
+                    Y_val = y_sven - y_bem
+                    X_val = np.concatenate(([y_val], y_bem)) 
+                else:
+                    Y_val = y_sven
+                    X_val = np.array([y_val, group['TSR'].unique()[0]])    
+                X_list.append(X_val)
+                Y_list.append(Y_val)
+            X_np = np.array(X_list)
+            Y_np = np.array(Y_list)
+    else :
+        cols_sven, cols_bem = ['SVEN'], ['BEM']
+        if entree == 'L' :
+            X_list, Y_list = [], []
+            indexs = df[cols_sven].index
+            if res_str == '1' :
+                Y_np = df[cols_sven].values - df[cols_bem].values
+                X_np = df[['yaw', 'TSR', 'r', 'cos_theta', 'sin_theta']+ cols_bem].values
+            else :
+                Y_np = df[cols_sven].values
+                X_np = df[['yaw', 'TSR', 'r', 'cos_theta', 'sin_theta']].values
+        else : 
+            X_list, Y_list = [], []
+            grouped = df.groupby('yaw')
+            Y_np = df[cols_sven].values
+            X_np = df[['yaw', 'TSR']].values
+            for yaw, group in grouped :
+                group.sort_values(['r', 'theta'])
+                index_group = group.index
+                y_sven = group[cols_sven].values.flatten()
+                y_bem = group[cols_bem].values.flatten()
+                if res_str == '1' :
+                    Y_val = y_sven - y_bem
+                    X_val = np.concatenate(([yaw, group['TSR'].unique()[0]], y_bem))
+                else :
+                    Y_val = y_sven
+                    X_val = np.array([yaw, group['TSR'].unique()[0]])
+                X_list.append(X_val)
+                Y_list.append(Y_val)
+            X_np = np.array(X_list)
+            Y_np = np.array(Y_list)
 
-def optimization_process(X,Y, model_name, n_trials = 1) :
+    return X_np, Y_np
+
+def optimization_process(X,Y, model_name, n_trials = 150) :
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
     X = X.to(device)
@@ -153,7 +183,7 @@ def optimization_process(X,Y, model_name, n_trials = 1) :
     print(f"   Modèle {model_name} optimisé sur {device}. Best MSE: {study.best_value:.4f}")
     return
 
-def train_val_save(df_train, df_val, residuelle, file_name, inter, model_name, epochs = 2) :
+def train_val_save(df_train, df_val, residuelle, file_name, inter, model_name, epochs = 1000) :
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     if 'G' in model_name : 
@@ -185,17 +215,20 @@ def train_val_save(df_train, df_val, residuelle, file_name, inter, model_name, e
             if 'BEM' in key : features_keys.append(key)
             if 'SVEN' in key : targ_keys.append(key)
     elif fam == 'L' :
-        features_keys = ['yaw', 'TSR', 'r', 'theta']
+        features_keys = ['yaw', 'TSR', 'r', 'cos_theta', 'sin_theta']
         targ_keys = []
         for key in df_train.keys() :
             if 'BEM' in key : features_keys.append(key)
             if 'SVEN' in key : targ_keys.append(key)
 
-    X_train = torch.tensor(df_train[features_keys].values, dtype = torch.float32, device = device)
-    Y_train = torch.tensor(df_train[targ_keys].values, dtype = torch.float32, device = device)
+    X_train, Y_train = format_data(df_train, model_name, residuelle)
+    X_val, Y_val = format_data(df_val, model_name, residuelle)
 
-    X_val = torch.tensor(df_val[features_keys].values, dtype = torch.float32, device = device)
-    Y_val = torch.tensor(df_val[targ_keys].values, dtype = torch.float32, device = device)
+    X_train = torch.tensor(X_train, dtype = torch.float32, device = device)
+    Y_train = torch.tensor(Y_train, dtype = torch.float32, device = device)
+
+    X_val = torch.tensor(X_val, dtype = torch.float32, device = device)
+    Y_val = torch.tensor(Y_val, dtype = torch.float32, device = device)
 
     model = TurbineMLP(X_train.shape[1], Y_train.shape[1], hparams['n_layers'], hparams['n_neurons'], hparams['dropout_rate']).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
@@ -316,7 +349,6 @@ def train_val_save(df_train, df_val, residuelle, file_name, inter, model_name, e
 def FatTraining(datas_dir = datas_dir) :
     
     for csv in os.listdir(datas_dir) :
-        csv = '/home/arthur/Documents/GitHub/BEM_2_Vortex-/DataSet/Final_DS/BEM_Dummy_f_p_nc.csv'
         file_name = P.Path(csv).stem
         if '_v_' in P.Path(csv).stem :
             inter = 'v'
@@ -324,8 +356,8 @@ def FatTraining(datas_dir = datas_dir) :
             inter = 'f'
     
         for model in ['G','L'] :
-            for res in ['0', '1'] :
-                name_model = model + '_' + P.Path(csv).stem
+            for res in ['1','0' ] :
+                model_name = model + '_' + P.Path(csv).stem
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 df = pd.read_csv(datas_dir/csv)
                 df_train, df_val = get_splits(df, entree = model)
@@ -337,14 +369,16 @@ def FatTraining(datas_dir = datas_dir) :
                         if 'BEM' in key : features_keys.append(key)
                         if 'SVEN' in key : targ_keys.append(key)
                 elif model == 'L' :
-                    features_keys = ['yaw', 'TSR', 'r', 'theta']
+                    features_keys = ['yaw', 'TSR', 'r', 'cos_theta', 'sin_theta']
                     targ_keys = []
                     for key in df_train.keys() :
                         if 'BEM' in key : features_keys.append(key)
                         if 'SVEN' in key : targ_keys.append(key)
 
-                X = torch.tensor(df_train[features_keys].values, dtype = torch.float32, device = device)
-                Y = torch.tensor(df_train[targ_keys].values, dtype = torch.float32, device = device)
+                X_train, Y_train = format_data(df_train, model_name, res)
+
+                X_train = torch.tensor(X_train, dtype = torch.float32, device = device)
+                Y_train = torch.tensor(X_train, dtype = torch.float32, device = device)
 
                 print("-"*85)
                 print("-"*85)
@@ -352,10 +386,10 @@ def FatTraining(datas_dir = datas_dir) :
                 print(f"----- Début de l'optimisation des hyperparamètres, classe de modèle {model} -----")
 
                 start_opt = time.perf_counter()
-                optimization_process(X = X, Y = Y, model_name = name_model)
+                optimization_process(X = X_train, Y = Y_train, model_name = model_name)
                 stop_opt = time.perf_counter()
 
-                opt_perf = stop_opt-start_opt
+                opt_perf = np.float32((stop_opt-start_opt)).round(2)
 
                 print(f"----- Optimisation terminée ! Réalisée en {opt_perf} sec ({(opt_perf)/60} minutes, {(opt_perf)/3600} heures) -----")
                 print("-"*85)
@@ -366,12 +400,12 @@ def FatTraining(datas_dir = datas_dir) :
                 print(" ----- Début de l'évaluation et de l'entrainement allongé -----")
                 
                 start_train = time.perf_counter()
-                train_val_save(df_train, df_val, file_name = file_name, residuelle = res, inter = inter, model_name = name_model)
+                train_val_save(df_train, df_val, file_name = file_name, residuelle = res, inter = inter, model_name = model_name)
                 stop_train = time.perf_counter()
 
-                train_perf = stop_train - start_train
+                train_perf = np.float32((stop_train - start_train)).round(2)
 
-                print(f"----- Entrainement terminée ! Réalisée en {train_perf} sec ({(train_perf)/60} minutes, {(train_perf)/3600} heures) -----")
+                print(f"----- Entrainement terminée ! Réalisée en {train_perf} sec ({(train_perf.round(2))/60} minutes, {(train_perf)/3600} heures) -----")
                 print("-"*85)
                 print(f"Entrainement et optimisation réalisée en {train_perf + opt_perf} sec ({(train_perf + opt_perf)/60} minutes)\n")
                 print("-"*85)

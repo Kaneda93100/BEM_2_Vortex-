@@ -89,9 +89,9 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter, comp = 'n
             for i, (y_val, group) in enumerate(df_test.groupby('yaw')):
                 group = group.sort_values(['theta', 'r'])
                 # preds[i] est le vecteur de taille 2592
-                p = preds[i, 0] 
+                p = preds[i, :] 
                 for j, (_, row) in enumerate(group.iterrows()):
-                    v = p
+                    v = p[j]
                     if res_str == '1':
                         v += row[c_bem]
                     records.append({'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], 'pred': v})
