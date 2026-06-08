@@ -1,0 +1,92 @@
+{
+    "GM_1_f_D0": {
+        "use_autoencoder": false,
+        "latent_dim": 0,
+        "lr": 0.0008416632914960755,
+        "dropout_rate": 0.023200278585736197,
+        "n_layers": 2,
+        "base_filters": 64,
+        "Total_Score_CV": 13.564391136169434
+    },
+    "GM_1_f_D128": {
+        "ae_lr": 0.0009666452187045039,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 128,
+        "lr": 0.00019558643931237633,
+        "dropout_rate": 0.04616027707463688,
+        "n_layers": 2,
+        "base_filters": 64,
+        "Total_Score_CV": 14.017999013264975
+    },
+    "GM_1_f_D256": {
+        "ae_lr": 0.0005098207990173504,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 256,
+        "lr": 0.00011963618875114971,
+        "dropout_rate": 0.0002924008284011983,
+        "n_layers": 2,
+        "base_filters": 32,
+        "Total_Score_CV": 14.567820231119791
+    },
+    "GM_1_f_D512": {
+        "ae_lr": 0.0003410310920683557,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 512,
+        "lr": 0.00015366373187082404,
+        "dropout_rate": 0.0027509719820442667,
+        "n_layers": 2,
+        "base_filters": 32,
+        "Total_Score_CV": 14.856140772501627
+    },
+    "GM_1_v_D0": {
+        "use_autoencoder": false,
+        "latent_dim": 0,
+        "lr": 0.0005263972239225398,
+        "dropout_rate": 0.005011406529366685,
+        "n_layers": 2,
+        "base_filters": 64,
+        "Total_Score_CV": 17.48895009358724
+    },
+    "GM_1_v_D128": {
+        "ae_lr": 0.0007983469513189286,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 128,
+        "lr": 0.00010176154653336977,
+        "dropout_rate": 0.05846020320087186,
+        "n_layers": 2,
+        "base_filters": 32,
+        "Total_Score_CV": 12.407122294108072
+    },
+    "GM_1_v_D256": {
+        "ae_lr": 0.0006086796679401096,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 256,
+        "lr": 0.0001062250692206509,
+        "dropout_rate": 0.006126967618491991,
+        "n_layers": 2,
+        "base_filters": 32,
+        "Total_Score_CV": 12.373546600341797
+    },
+    "GM_1_v_D512": {
+        "ae_lr": 0.0003864352625475822,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 512,
+        "lr": 0.00010027422984075199,
+        "dropout_rate": 0.01001273001159687,
+        "n_layers": 2,
+        "base_filters": 32,
+        "Total_Score_CV": 13.216293652852377
+    }
+}

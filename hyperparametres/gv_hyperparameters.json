@@ -2,177 +2,197 @@
     "GV_0_f_D0": {
         "use_autoencoder": false,
         "latent_dim": 0,
-        "lr": 0.0040668924420117,
-        "dropout_rate": 0.005293669948279113,
+        "lr": 0.00498553783142031,
+        "dropout_rate": 0.001360142847299521,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 448,
+        "Total_Score_CV": 14.792662938435873
     },
     "GV_0_f_D32": {
         "ae_lr": 0.004637060960111682,
         "use_autoencoder": true,
         "latent_dim": 32,
-        "lr": 0.0033252389412138034,
-        "dropout_rate": 0.001346386795051311,
+        "lr": 0.002500271789822352,
+        "dropout_rate": 0.008490707022303718,
         "n_layers": 3,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 14.326752344767252
     },
     "GV_0_f_D64": {
         "ae_lr": 0.0020649567354358135,
         "use_autoencoder": true,
         "latent_dim": 64,
-        "lr": 0.004034514702572326,
-        "dropout_rate": 0.008675958320226967,
-        "n_layers": 3,
-        "n_neurons": 384
+        "lr": 0.004278987832899843,
+        "dropout_rate": 0.010260802151120591,
+        "n_layers": 2,
+        "n_neurons": 384,
+        "Total_Score_CV": 13.648639043172201
     },
     "GV_0_f_D128": {
         "ae_lr": 0.0025403917862432436,
         "use_autoencoder": true,
         "latent_dim": 128,
-        "lr": 0.002599702900404321,
-        "dropout_rate": 3.141898814502898e-05,
-        "n_layers": 4,
-        "n_neurons": 512
+        "lr": 0.0021276443801888823,
+        "dropout_rate": 0.0003612396791869556,
+        "n_layers": 3,
+        "n_neurons": 448,
+        "Total_Score_CV": 12.928912480672201
     },
     "GV_0_f_D256": {
         "ae_lr": 0.00274486480036278,
         "use_autoencoder": true,
         "latent_dim": 256,
-        "lr": 0.003918775439510423,
-        "dropout_rate": 3.543766315763481e-05,
-        "n_layers": 3,
-        "n_neurons": 512
+        "lr": 0.002906483588695178,
+        "dropout_rate": 0.0003681469918856845,
+        "n_layers": 4,
+        "n_neurons": 512,
+        "Total_Score_CV": 13.784808794657389
     },
     "GV_0_v_D0": {
         "use_autoencoder": false,
         "latent_dim": 0,
-        "lr": 0.0028686704756548257,
-        "dropout_rate": 0.0002601702414270951,
-        "n_layers": 3,
-        "n_neurons": 512
+        "lr": 0.003496441035430321,
+        "dropout_rate": 9.744972916860711e-05,
+        "n_layers": 2,
+        "n_neurons": 512,
+        "Total_Score_CV": 15.922272682189941
     },
     "GV_0_v_D32": {
         "ae_lr": 0.0031930568176266392,
         "use_autoencoder": true,
         "latent_dim": 32,
-        "lr": 0.004641454486630382,
-        "dropout_rate": 0.00043832887679292514,
+        "lr": 0.004062617411498676,
+        "dropout_rate": 3.291578123067835e-05,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 11.035993576049805
     },
     "GV_0_v_D64": {
         "ae_lr": 0.003286004594288294,
         "use_autoencoder": true,
         "latent_dim": 64,
-        "lr": 0.004699153262281255,
-        "dropout_rate": 9.477961823725536e-05,
+        "lr": 0.00466640323859955,
+        "dropout_rate": 0.0001880568183349374,
         "n_layers": 2,
-        "n_neurons": 448
+        "n_neurons": 512,
+        "Total_Score_CV": 10.947763760884603
     },
     "GV_0_v_D128": {
         "ae_lr": 0.0016485532963949794,
         "use_autoencoder": true,
         "latent_dim": 128,
-        "lr": 0.004977988484033614,
-        "dropout_rate": 0.00015191693670739816,
+        "lr": 0.0029452629942527827,
+        "dropout_rate": 0.0016613555535233276,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 320,
+        "Total_Score_CV": 11.58938709894816
     },
     "GV_0_v_D256": {
         "ae_lr": 0.003849023699072145,
         "use_autoencoder": true,
         "latent_dim": 256,
-        "lr": 0.0028468392319511053,
-        "dropout_rate": 0.00010823980148548293,
-        "n_layers": 3,
-        "n_neurons": 448
+        "lr": 0.00463827428271669,
+        "dropout_rate": 0.001117100842762936,
+        "n_layers": 2,
+        "n_neurons": 512,
+        "Total_Score_CV": 13.235398292541504
     },
     "GV_1_f_D0": {
         "use_autoencoder": false,
         "latent_dim": 0,
-        "lr": 0.0009154060960362487,
-        "dropout_rate": 0.015698236154938587,
-        "n_layers": 2,
-        "n_neurons": 512
+        "lr": 0.0012155161194704566,
+        "dropout_rate": 0.024283010458282395,
+        "n_layers": 3,
+        "n_neurons": 448,
+        "Total_Score_CV": 15.427503903706869
     },
     "GV_1_f_D32": {
         "ae_lr": 0.004479138178111878,
         "use_autoencoder": true,
         "latent_dim": 32,
-        "lr": 0.0012373907350517956,
-        "dropout_rate": 0.01739134192882192,
+        "lr": 0.0008180719722919094,
+        "dropout_rate": 0.0009234772837687709,
         "n_layers": 2,
-        "n_neurons": 384
+        "n_neurons": 512,
+        "Total_Score_CV": 13.919976234436035
     },
     "GV_1_f_D64": {
         "ae_lr": 0.0030736186914582333,
         "use_autoencoder": true,
         "latent_dim": 64,
-        "lr": 0.0004814663464162131,
-        "dropout_rate": 0.014840078529706102,
+        "lr": 0.0005661193234264536,
+        "dropout_rate": 0.00029991214424357135,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 13.82675806681315
     },
     "GV_1_f_D128": {
         "ae_lr": 0.0008654348154280995,
         "use_autoencoder": true,
         "latent_dim": 128,
-        "lr": 0.000317418378570871,
-        "dropout_rate": 0.029772435500873388,
+        "lr": 0.000481737758850737,
+        "dropout_rate": 0.001636124347018264,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 14.34473991394043
     },
     "GV_1_f_D256": {
         "ae_lr": 0.002786348491867431,
         "use_autoencoder": true,
         "latent_dim": 256,
-        "lr": 0.0005714021364031098,
-        "dropout_rate": 0.0004283357769268261,
+        "lr": 0.0007515314313924482,
+        "dropout_rate": 0.0024278660206684503,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 448,
+        "Total_Score_CV": 14.01811949412028
     },
     "GV_1_v_D0": {
         "use_autoencoder": false,
         "latent_dim": 0,
-        "lr": 0.00046343035762059224,
-        "dropout_rate": 0.023027849736378652,
+        "lr": 0.0005250771244574615,
+        "dropout_rate": 0.000440335117071056,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 12.67291259765625
     },
     "GV_1_v_D32": {
         "ae_lr": 0.002733661214222374,
         "use_autoencoder": true,
         "latent_dim": 32,
-        "lr": 0.0005576807108819388,
-        "dropout_rate": 0.02340330366101796,
+        "lr": 0.0004570199688820111,
+        "dropout_rate": 3.4782010463127455e-05,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 12.818758010864258
     },
     "GV_1_v_D64": {
         "ae_lr": 0.0034137913105427393,
         "use_autoencoder": true,
         "latent_dim": 64,
-        "lr": 0.0008948110461084829,
-        "dropout_rate": 0.0011990083299773004,
+        "lr": 0.0006830246456096447,
+        "dropout_rate": 0.0006212712707668382,
         "n_layers": 2,
-        "n_neurons": 384
+        "n_neurons": 384,
+        "Total_Score_CV": 12.98536459604899
     },
     "GV_1_v_D128": {
         "ae_lr": 0.0018114386081525492,
         "use_autoencoder": true,
         "latent_dim": 128,
-        "lr": 0.0005031802739764142,
-        "dropout_rate": 0.024058920806825666,
+        "lr": 0.000532611587339227,
+        "dropout_rate": 0.00019181114231393067,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 448,
+        "Total_Score_CV": 12.258472760518393
     },
     "GV_1_v_D256": {
         "ae_lr": 0.0019383391822809036,
         "use_autoencoder": true,
         "latent_dim": 256,
-        "lr": 0.0004868651368167926,
-        "dropout_rate": 0.014673474511109234,
+        "lr": 0.00046258937917527534,
+        "dropout_rate": 0.0020348794780539053,
         "n_layers": 2,
-        "n_neurons": 512
+        "n_neurons": 512,
+        "Total_Score_CV": 12.701512336730957
     }
 }

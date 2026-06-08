@@ -78,5 +78,47 @@
         "ae_lr": 0.0019383391822809036,
         "use_autoencoder": true,
         "latent_dim": 256
+    },
+    "GM_1_f_D128": {
+        "ae_lr": 0.0009666452187045039,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "GM_1_f_D256": {
+        "ae_lr": 0.0005098207990173504,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "GM_1_f_D512": {
+        "ae_lr": 0.0003410310920683557,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 512
+    },
+    "GM_1_v_D128": {
+        "ae_lr": 0.0007983469513189286,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "GM_1_v_D256": {
+        "ae_lr": 0.0006086796679401096,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "GM_1_v_D512": {
+        "ae_lr": 0.0003864352625475822,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 512
     }
 }
