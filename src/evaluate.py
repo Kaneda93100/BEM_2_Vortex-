@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import wasserstein_distance
 from sklearn.model_selection import KFold
 from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
@@ -51,7 +52,9 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
 
 def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     V_BEM_phys_train = None
+    V_BEM_phys_test = None
     F_SVEN_phys_train = None
+    F_SVEN_phys_test = None
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     base_model_name = f"{entree}_{residuelle}_{inter}"
@@ -60,7 +63,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     is_cnn = (entree == 'GM')
     
     print(f"\n{'='*50}")
-    print(f" ÉVALUATION EXHAUSTIVE (CV2 LISSÉE + RÈGLE 1.5X) : {saved_name}")
+    print(f" ÉVALUATION EXHAUSTIVE (5 Folds CV + RÈGLE 1.25X) : {saved_name}")
     print(f"{'='*50}")
     
     hp_path = f"hyperparametres/{entree.lower()}_hyperparameters.json"
@@ -76,8 +79,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     global_mean_fn_train = df_train['Fn_SVEN'].abs().mean()
     global_mean_ft_train = df_train['Ft_SVEN'].abs().mean()
 
+    # Initialisation des références physiques et des Scalers
     if inter == 'v':
         _, Y_f_abs_tr = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
+        _, Y_f_abs_te = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         with open(f"scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
@@ -87,6 +92,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         scaler_f_abs_torch = TorchScaler(scaler_f_abs, device)
         
         F_SVEN_phys_train = scaler_f_abs_torch.inverse_transform(Y_f_abs_tr)
+        F_SVEN_phys_test = scaler_f_abs_torch.inverse_transform(Y_f_abs_te)
         polar_surrogate = PolarSurrogate(device=device).to(device)
 
         geom = get_geometry()
@@ -114,9 +120,16 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             V_SVEN_phys_tr = scaler_v_abs_torch.inverse_transform(Y_train_abs)
             Delta_V_phys_tr = scaler_v_torch.inverse_transform(Y_train)
             V_BEM_phys_train = V_SVEN_phys_tr - Delta_V_phys_tr
+            
+            _, Y_test_abs = format_data(df_test, entree, '0', inter, is_train=False, device=device)
+            V_SVEN_phys_te = scaler_v_abs_torch.inverse_transform(Y_test_abs)
+            Delta_V_phys_te = scaler_v_torch.inverse_transform(Y_test)
+            V_BEM_phys_test = V_SVEN_phys_te - Delta_V_phys_te
     else:
         with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
+        F_SVEN_phys_train = scaler_f_torch.inverse_transform(Y_train)
+        F_SVEN_phys_test = scaler_f_torch.inverse_transform(Y_test)
 
     use_ae = best_params.get('use_autoencoder', False) and suffixe != 'D0'
     Y_train_target = Y_train
@@ -145,22 +158,68 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     else:
         criterion = DecoderLoss(current_ae)
 
+    # Helper fonction pour calculer le score physique Total_Score (%) sur n'importe quel set
+    def compute_metrics(model, X_eval, f_true_phys_eval, v_bem_phys_eval=None):
+        with torch.no_grad():
+            preds_norm = current_ae.decode(model(X_eval)) if use_ae else model(X_eval)
+            
+            if inter == 'v':
+                v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
+                if v_bem_phys_eval is not None: v_pred_phys = v_pred_phys + v_bem_phys_eval
+
+                if is_cnn:
+                    v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
+                else:
+                    v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
+                    
+                f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
+                
+                if is_cnn:
+                    f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
+                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                    Fn_t, Ft_t = f_true_phys_eval[:, 0], f_true_phys_eval[:, 1]
+                else:
+                    Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
+                    Fn_t, Ft_t = f_true_phys_eval[:, 0::2], f_true_phys_eval[:, 1::2]
+            else:
+                f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
+                if is_cnn:
+                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
+                    Fn_t, Ft_t = f_true_phys_eval[:, 0], f_true_phys_eval[:, 1]
+                else:
+                    Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
+                    Fn_t, Ft_t = f_true_phys_eval[:, 0::2], f_true_phys_eval[:, 1::2]
+                    
+            rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
+            rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
+            
+            rel_fn = (rmse_fn / global_mean_fn_train * 100) if global_mean_fn_train > 0 else 0
+            rel_ft = (rmse_ft / global_mean_ft_train * 100) if global_mean_ft_train > 0 else 0
+            
+            return (rel_fn + rel_ft).item()
+
     # =========================================================================
-    # PHASE 1 : VALIDATION CROISÉE SUR 2000 ÉPOQUES AVEC HISTORIQUE COMPLET
+    # PHASE 1 : VALIDATION CROISÉE SUR 5 FOLDS (2000 ÉPOQUES)
     # =========================================================================
-    print("\n   [1/2] Lancement de la Cross-Validation (3 Folds x 2000 époques)...")
-    kf = KFold(n_splits=3, shuffle=True, random_state=42)
+    print("\n   [1/2] Lancement de la Cross-Validation (5 Folds x 2000 époques)...")
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
     
     eval_step = 10
-    epochs_axis = np.arange(eval_step, 2001, eval_step) # Augmenté à 2000 époques max
-    cv_history_matrix = np.zeros((3, len(epochs_axis)))
+    epochs_axis = np.arange(eval_step, 2001, eval_step)
+    
+    train_history_matrix = np.zeros((5, len(epochs_axis)))
+    cv_history_matrix = np.zeros((5, len(epochs_axis)))
+    test_history_matrix = np.zeros((5, len(epochs_axis)))
     
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())):
         X_tr_cv, Y_tr_cv = X_train[train_idx], Y_train_target[train_idx]
-        X_val_cv, Y_val_cv = X_train[val_idx], Y_train_target[val_idx]
+        X_val_cv = X_train[val_idx]
         
         v_bem_tr_cv = V_BEM_phys_train[train_idx] if V_BEM_phys_train is not None else None
         v_bem_val_cv = V_BEM_phys_train[val_idx] if V_BEM_phys_train is not None else None
+        
+        f_sven_tr_cv = F_SVEN_phys_train[train_idx]
+        f_sven_val_cv = F_SVEN_phys_train[val_idx]
         
         if entree == 'GV':
             model_cv = TurbineMLP(X_train.shape[1], target_dim, best_params['n_layers'], best_params['n_neurons'], best_params['dropout_rate'], device=device).to(device)
@@ -170,7 +229,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         
         optimizer_cv = torch.optim.Adam(model_cv.parameters(), lr=best_params['lr'])
         
-        pbar_cv = tqdm(range(2000), desc=f"   -> Fold {fold+1}/3", leave=False) # Porté à 2000
+        pbar_cv = tqdm(range(2000), desc=f"   -> Fold {fold+1}/5", leave=False)
         for epoch in pbar_cv:
             model_cv.train()
             optimizer_cv.zero_grad()
@@ -185,74 +244,66 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             
             if (epoch + 1) % eval_step == 0:
                 model_cv.eval()
-                with torch.no_grad():
-                    preds_norm = current_ae.decode(model_cv(X_val_cv)) if use_ae else model_cv(X_val_cv)
-                    
-                    if inter == 'v':
-                        v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
-                        if v_bem_val_cv is not None: v_pred_phys = v_pred_phys + v_bem_val_cv
+                score_train = compute_metrics(model_cv, X_tr_cv, f_sven_tr_cv, v_bem_tr_cv)
+                score_val = compute_metrics(model_cv, X_val_cv, f_sven_val_cv, v_bem_val_cv)
+                score_test = compute_metrics(model_cv, X_test, F_SVEN_phys_test, V_BEM_phys_test)
+                
+                step_idx = epoch // eval_step
+                train_history_matrix[fold, step_idx] = score_train
+                cv_history_matrix[fold, step_idx] = score_val
+                test_history_matrix[fold, step_idx] = score_test
 
-                        if is_cnn:
-                            v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
-                        else:
-                            v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
-                            
-                        f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
-                        f_sven_val_cv = F_SVEN_phys_train[val_idx]
-                        
-                        if is_cnn:
-                            f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
-                            Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                            Fn_t, Ft_t = f_sven_val_cv[:, 0], f_sven_val_cv[:, 1]
-                        else:
-                            Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                            Fn_t, Ft_t = f_sven_val_cv[:, 0::2], f_sven_val_cv[:, 1::2]
-                    else:
-                        f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
-                        f_true_phys = scaler_f_torch.inverse_transform(Y_val_cv)
-                        if is_cnn:
-                            Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                            Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
-                        else:
-                            Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
-                            Fn_t, Ft_t = f_true_phys[:, 0::2], f_true_phys[:, 1::2]
-                            
-                    rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
-                    rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
-                    rel_fn = (rmse_fn / global_mean_fn_train * 100) if global_mean_fn_train > 0 else 0
-                    rel_ft = (rmse_ft / global_mean_ft_train * 100) if global_mean_ft_train > 0 else 0
-                    
-                    step_idx = epoch // eval_step
-                    cv_history_matrix[fold, step_idx] = (rel_fn + rel_ft).item()
-
-    # Lissage par moyenne glissante (Fenêtre de 50 epochs)
+    # --- Calcul des moyennes et lissage par moyenne glissante (Fenêtre de 50 epochs) ---
+    mean_train_curve = train_history_matrix.mean(axis=0)
     mean_cv_curve = cv_history_matrix.mean(axis=0)
+    mean_test_curve = test_history_matrix.mean(axis=0)
     std_cv_curve = cv_history_matrix.std(axis=0)
     
     window_size = 50 // eval_step # Fenêtre de 50 époques = 5 pas
-    smoothed_cv_curve = pd.Series(mean_cv_curve).rolling(window=window_size, min_periods=1).mean().values
     
-    best_step_idx = np.argmin(smoothed_cv_curve)
+    smoothed_train = pd.Series(mean_train_curve).rolling(window=window_size, min_periods=1).mean().values
+    smoothed_cv = pd.Series(mean_cv_curve).rolling(window=window_size, min_periods=1).mean().values
+    smoothed_test = pd.Series(mean_test_curve).rolling(window=window_size, min_periods=1).mean().values
+    
+    best_step_idx = np.argmin(smoothed_cv)
     best_epoch_global = int(epochs_axis[best_step_idx])
     score_cv2_final = mean_cv_curve[best_step_idx] 
     variance_finale = std_cv_curve[best_step_idx]
     
-    # Règle empirique de 1.5x époques pour l'entraînement final (plafonné à 2000)
-    best_epoch_final = min(2000, int(best_epoch_global * 1.5))
-
+    # Règle empirique de 1.25x époques pour l'entraînement final (plafonné à 2000)
+    best_epoch_final = min(2000, int(best_epoch_global * 1.25))
     best_epoch_final = int(np.round(best_epoch_final / eval_step) * eval_step)
     best_epoch_final = max(eval_step, min(2000, best_epoch_final))
     
     idx_15 = np.where(epochs_axis == best_epoch_final)[0][0]
     score_cv2_15 = mean_cv_curve[idx_15]
     
-    print(f"   [OK] Courbe de Cross-Validation stabilisée et lissée (fenêtre 50 ep).")
+    print(f"   [OK] Courbes calculées sur 5 Folds et lissées (fenêtre 50 ep).")
     print(f"   -> Époque optimale identifiée (Best_Epoch) : {best_epoch_global} époques")
-    print(f"   -> Époque finale calculée (Best_1.5Epoch) : {best_epoch_final} époques")
+    print(f"   -> Époque finale calculée (Best_1.25Epoch) : {best_epoch_final} époques")
 
+    # --- GÉNÉRATION ET ENREGISTREMENT DU GRAPHIQUE ---
+    os.makedirs("images", exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs_axis, smoothed_train, label='Train Error (Moyenne 5 Folds)', color='royalblue', alpha=0.9, linewidth=2)
+    plt.plot(epochs_axis, smoothed_cv, label='CV Error (Moyenne 5 Folds)', color='darkorange', linewidth=2.5)
+    plt.plot(epochs_axis, smoothed_test, label='Test Error (Moyenne 5 Folds)', color='forestgreen', alpha=0.9, linewidth=2)
+    
+    plt.axvline(x=best_epoch_global, color='red', linestyle='--', label=f'Best CV Epoch ({best_epoch_global})')
+    plt.axvline(x=best_epoch_final, color='purple', linestyle=':', label=f'1.25x Rule Epoch ({best_epoch_final})')
+    
+    plt.title(f'Courbes d\'Apprentissage (Lissage 50 epochs) : {saved_name}', fontsize=14, fontweight='bold')
+    plt.xlabel('Époques (Epochs)', fontsize=12)
+    plt.ylabel('Erreur Physique Rel_Fn + Rel_Ft (%)', fontsize=12)
+    plt.legend(loc='best')
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(f"images/learning_curves_{saved_name}.png", dpi=300)
+    plt.close()
+    print(f"   [GRAPHIQUE] Sauvegardé sous images/learning_curves_{saved_name}.png")
 
     # =========================================================================
-    # PHASE 2 : ENTRAÎNEMENT BRIDÉ À LA BEST_1.5EPOCH ET ÉVALUATION TEST
+    # PHASE 2 : ENTRAÎNEMENT BRIDÉ À LA BEST_1.25EPOCH ET ÉVALUATION TEST
     # =========================================================================
     print(f"\n   [2/2] Entraînement du Modèle Final (100% Data, bridé à {best_epoch_final} époques)...")
     if entree == 'GV':
@@ -265,7 +316,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     best_train_loss = float('inf')
     best_model_weights = None
     
-    # Entraînement sur la durée ajustée de 1.5x
+    # Entraînement sur la durée ajustée de 1.25x
     pbar = tqdm(range(best_epoch_final), desc=f"   Training Final")
     for epoch in pbar:
         model_final.train()
@@ -306,14 +357,13 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     Fn_p, Ft_p = df_res['Fn_pred'].values, df_res['Ft_pred'].values
     
     rmse_fn = np.sqrt(np.mean((Fn_p - Fn_s)**2))
-    rmse_ft = np.sqrt(np.mean((Ft_p - Fn_s)**2)) # correction typo sven
     rmse_ft = np.sqrt(np.mean((Ft_p - Ft_s)**2))
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
     score_total_test = rel_fn + rel_ft
     wd_score = wasserstein_distance(Fn_s, Fn_p) + wasserstein_distance(Ft_s, Ft_p)
     
-    # --- ENREGISTREMENT AVEC LES NOUVELLES COLONNES DEMANDÉES ---
+
     results_detail = {
         "Modele": saved_name, "Strat_Entree": entree, "Residuelle": residuelle, "Intermediaire": inter, "Suffixe": suffixe,
         "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), 
@@ -321,7 +371,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         "Total_Score_Test (%)": round(score_total_test, 2),
         "Total_Score_CV_150 (%)": round(best_params.get("Total_Score_CV", -1.0), 2),
         "Total_Score_CV2_Best_Epoch": round(score_cv2_final, 2),
-        "Total_Score_CV2_Best_1.5Epoch": round(score_cv2_15, 2), 
+        "Total_Score_CV2_Best_1.25Epoch": round(score_cv2_15, 2), 
         "CV2_Variance (%)": round(variance_finale, 2),
         "Best_Epoch": best_epoch_global,
         "Wasserstein_Dist": round(wd_score, 4)
@@ -339,8 +389,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     print(f"   [RÉSUMÉ DES SCORES PHYSIQUES]")
     print(f"   -> Optuna CV (150 ep.) : {best_params.get('Total_Score_CV', -1.0):.2f}%")
     print(f"   -> Final CV  (Best Epoch): {score_cv2_final:.2f}% (à l'époque {best_epoch_global}, Var: {variance_finale:.2f}%)")
-    print(f"   -> Final CV  (Best 1.5x) : {score_cv2_15:.2f}% (à l'époque {best_epoch_final})")
-    print(f"   -> Final Test(bridé 1.5x): {score_total_test:.2f}%")
+    print(f"   -> Final CV  (Best 1.25x) : {score_cv2_15:.2f}% (à l'époque {best_epoch_final})")
+    print(f"   -> Final Test(bridé 1.25x): {score_total_test:.2f}%")
 
     if score_total_test < 16.0:
         os.makedirs(f"models/{entree}", exist_ok=True)
@@ -369,7 +419,7 @@ def evaluate_baselines(df_test):
         "Total_Score_Test (%)": round(score_total, 2), 
         "Total_Score_CV_150 (%)": -1.0, 
         "Total_Score_CV2_Best_Epoch": -1.0, 
-        "Total_Score_CV2_Best_1.5Epoch": -1.0,
+        "Total_Score_CV2_Best_1.25Epoch": -1.0,
         "CV2_Variance (%)": -1.0,
         "Best_Epoch": "-",
         "Wasserstein_Dist": round(wd_score_baseline, 4)
