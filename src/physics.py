@@ -80,12 +80,10 @@ def convert_v_to_f(V_eff, alpha_deg, r):
     """
     geom = get_geometry()
     
-    # Conversion de alpha en radians juste pour np.cos et np.sin
     alpha_rad = np.radians(alpha_deg)
     
     if isinstance(r, (list, np.ndarray, pd.Series)):
         c = np.array([geom.get_chord(ri) for ri in r])
-        # On passe alpha_deg à get_cl_cd
         cl_cd = [geom.get_cl_cd(ri, ai) for ri, ai in zip(r, alpha_deg)]
         Cl = np.array([item[0] for item in cl_cd])
         Cd = np.array([item[1] for item in cl_cd])
@@ -93,29 +91,28 @@ def convert_v_to_f(V_eff, alpha_deg, r):
         c = geom.get_chord(r)
         Cl, Cd = geom.get_cl_cd(r, alpha_deg)
     
-    # Projections géométriques (Nécessite alpha en radians)
+    # Projections géométriques
     Cn = Cl * np.cos(alpha_rad) + Cd * np.sin(alpha_rad)
     Ct = Cl * np.sin(alpha_rad) - Cd * np.cos(alpha_rad)
     
     # Pression dynamique et Forces
     q = 0.5 * RHO * (V_eff**2) * abs(c)
     Fn = q * Cn
-    Ft =- q * Ct #signe moins pour retrouver la même convention
+    Ft =- q * Ct 
     
     return Fn, Ft
 
+
 def compute_cp(df, col_fn, col_ft, R_rotor=2.25, Nb_pales=3, omega=44.5163679):
     """
-    Calcule le coefficient de puissance (Cp) de l'éolienne à partir des champs de forces.
-    Gère dynamiquement les variations de yaw et de TSR.
+    Calcule Cp, Ct, ainsi que les écarts-types sur la rotation et l'envergure.
     """
-    # On travaille sur une copie pour ne pas altérer le DataFrame original
     df_calc = df.copy()
     geom = get_geometry()
     
     # 1. Calcul des longueurs de sections (dl)
     r_unique = np.sort(df_calc['r'].unique())
-    nodes = [0.21] # Rayon du moyeu (hub)
+    nodes = [0.21] # Rayon du moyeu
     for i in range(len(r_unique)):
         next_node = 2 * r_unique[i] - nodes[-1]
         nodes.append(next_node)
@@ -123,51 +120,71 @@ def compute_cp(df, col_fn, col_ft, R_rotor=2.25, Nb_pales=3, omega=44.5163679):
     dl_map = dict(zip(r_unique, np.diff(nodes)))
     df_calc['dl'] = df_calc['r'].map(dl_map)
     
-    # 2. Projection (calcul de phi en radians)
+    # 2. Angle structurel de la pale (Pitch + Twist)
     df_calc['phi_rad'] = PITCH_RAD + geom.get_twist_rad(df_calc['r'])
     
-    # 3. Calcul du couple élémentaire (dQ)
+    # 3. Projections Aérodynamiques
     Ft_corrige = df_calc[col_ft] * -1
     cos_phi = np.cos(df_calc['phi_rad'])
     sin_phi = np.sin(df_calc['phi_rad'])
     
+    # Couple (Force dans le plan de rotation)
     df_calc['dQ_r'] = df_calc[col_fn] * sin_phi + Ft_corrige * cos_phi
     df_calc['dQ'] = df_calc['dQ_r'] * df_calc['r'] * df_calc['dl']
     
+    # Poussée axiale (Thrust - Force perpendiculaire au plan de rotation)
+    df_calc['dT_r'] = df_calc[col_fn] * cos_phi - Ft_corrige * sin_phi
+    df_calc['dT'] = df_calc['dT_r'] * df_calc['dl']
+    
     # 4. Préparation du GroupBy
     group_cols = ['yaw']
-    if 'TSR' in df_calc.columns:
-        group_cols.append('TSR')
+    if 'TSR' in df_calc.columns: group_cols.append('TSR')
         
     results = []
-    model_name = col_fn.replace('Fn_', '') # Extrait 'pred', 'SVEN', 'BEM', etc.
+    model_name = col_fn.replace('Fn_', '') 
     
     for name, group in df_calc.groupby(group_cols):
-        if 'TSR' in group_cols:
-            yaw_val = name[0] if isinstance(name, tuple) else name
-            tsr_val = name[1] if isinstance(name, tuple) else 8.0
+        if isinstance(name, tuple):
+            yaw_val = name[0]
+            tsr_val = name[1] if len(name) > 1 else 8.0
         else:
-            yaw_val = name[0] if isinstance(name, tuple) else name
-            tsr_val = 8.0 # Valeur de TSR par défaut
+            yaw_val = name
+            tsr_val = 8.0
             
-  
-        # Omega est fixé, on calcule le vent théorique correspondant au TSR
         u_vent = (omega * R_rotor) / tsr_val
         
-        # Intégrations
-        Q_theta = group.groupby('theta')['dQ'].sum()  # Somme sur le rayon
-        Q_moyen = Q_theta.mean()                      # Moyenne sur l'azimut
-        
-        # Puissances
-        P_meca = Nb_pales * Q_moyen * omega
+        # Grandeurs de référence
         P_vent = 0.5 * RHO * np.pi * (R_rotor**2) * (u_vent**3)
+        F_vent = 0.5 * RHO * np.pi * (R_rotor**2) * (u_vent**2) 
         
-        Cp = P_meca / P_vent
+        # Intégrations spatiales (Somme sur le rayon r pour chaque azimut theta)
+        Q_theta = group.groupby('theta')['dQ'].sum() 
+        T_theta = group.groupby('theta')['dT'].sum()
+        
+        # Séries temporelles sur un tour (Multipliées par 3 pales)
+        Cp_serie = (Nb_pales * Q_theta * omega) / P_vent
+        Ct_serie = (Nb_pales * T_theta) / F_vent
+        
+        # Moyennes et Écarts-types Temporels (sur theta)
+        Cp_mean = Cp_serie.mean()
+        Cp_std = Cp_serie.std()
+        
+        Ct_mean = Ct_serie.mean()
+        Ct_std = Ct_serie.std()
+        
+        # Écarts-types Spatiaux (Dispersion de Fn et Ft sur r, moyennée sur theta)
+        std_Fn_mean = group.groupby('theta')[col_fn].std().mean()
+        std_Ft_mean = group.groupby('theta')[col_ft].std().mean()
         
         res_dict = {
             'yaw': yaw_val,
             'TSR': tsr_val,
-            f'Cp_{model_name}': Cp
+            f'Cp_{model_name}': Cp_mean,
+            f'Cp_std_{model_name}': Cp_std,
+            f'Ct_{model_name}': Ct_mean,
+            f'Ct_std_{model_name}': Ct_std,
+            f'std_Fn_{model_name}': std_Fn_mean,
+            f'std_Ft_{model_name}': std_Ft_mean
         }
         results.append(res_dict)
         
