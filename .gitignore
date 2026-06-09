@@ -16,7 +16,6 @@ slide/*.vrb
 B2V
 
 # --- Sorties et fichiers générés ---
-scalers/
 images/
 performance/*
 
