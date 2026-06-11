@@ -110,7 +110,7 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
     # ==========================================
     model_name = f"{entree}_{res_str}_{inter}"
     os.makedirs("scalers", exist_ok=True)
-    path_x, path_y = f"scalers/scaler_X_{model_name}.pkl", f"scalers/scaler_Y_{model_name}.pkl"    
+    path_x, path_y = f"training/scalers/scaler_X_{model_name}.pkl", f"training/scalers/scaler_Y_{model_name}.pkl"    
 
     original_shape_X = X_np.shape
     original_shape_Y = Y_np.shape

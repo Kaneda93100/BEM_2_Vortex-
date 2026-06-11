@@ -14,7 +14,7 @@ PITCH_RAD = -0.040143       # Angle de pitch en radians (-2.3 degrés)
 # GESTIONNAIRE DE GÉOMÉTRIE
 # ==========================================
 class BladeGeometry:
-    def __init__(self, geom_file="geometry/blade_geom.csv", airfoils_file="geometry/airfoils.csv"):
+    def __init__(self, geom_file="data/geometry/blade_geom.csv", airfoils_file="geometry/airfoils.csv"):
         self.geom_file = geom_file
         self.airfoils_file = airfoils_file
         

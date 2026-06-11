@@ -16,10 +16,10 @@ from tqdm import tqdm
 from sklearn.exceptions import InconsistentVersionWarning
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
-from src.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
-from src.data_loader import load_clean_data, format_data, get_splits
-from src.physics import convert_v_to_f, get_geometry, compute_cp
-from src.evaluate import reconstruct_predictions
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
+from training.src.data_loader import load_clean_data, format_data, get_splits
+from core.physics import convert_v_to_f, get_geometry, compute_cp
+from training.src.evaluate import reconstruct_predictions
 
 MODELS = [
     "GV_0_v_D256", 
@@ -256,7 +256,7 @@ def plot_learning_curves_group(models_to_plot, img_id, df_train, df_test):
         ax.grid(True, linestyle=':', alpha=0.7)
         
     plt.tight_layout()
-    plt.savefig(f"images/Image_{img_id}_Curves.png", dpi=300)
+    plt.savefig(f"training/performance/images/Image_{img_id}_Curves.png", dpi=300)
     plt.close()
 
 # =====================================================================
@@ -283,7 +283,7 @@ def plot_polar_errors(models, img_id, df_preds, force_type, random_pair, vmax):
         plt.colorbar(sc, ax=ax, label=f"Erreur absolue {force_type} (N/m)")
         
     plt.tight_layout()
-    plt.savefig(f"images/Image_{img_id}_Polar_{force_type}.png", dpi=300)
+    plt.savefig(f"training/performance/images/Image_{img_id}_Polar_{force_type}.png", dpi=300)
     plt.close()
 
 # =====================================================================
@@ -322,7 +322,7 @@ def plot_scatter_scores(model1, model2, img_id, preds_train, preds_test, global_
         plt.colorbar(sc_tr, ax=ax, label="Total Score (%)")
         
     plt.tight_layout()
-    plt.savefig(f"images/Image_{img_id}_Scatter.png", dpi=300)
+    plt.savefig(f"training/performance/images/Image_{img_id}_Scatter.png", dpi=300)
     plt.close()
 
 # =====================================================================
@@ -408,7 +408,7 @@ def build_tables(preds_test, df_test_raw):
 # =====================================================================
 def generate_comparison_summary():
     print(" === LANCEMENT DE LA SYNTHÈSE DES 4 MODÈLES ===")
-    os.makedirs("images", exist_ok=True)
+    os.makedirs("training/performance/images", exist_ok=True)
     
     df_raw = load_clean_data()
     if 'TSR' not in df_raw.columns: df_raw['TSR'] = 8.0 

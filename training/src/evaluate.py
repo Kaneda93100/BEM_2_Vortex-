@@ -8,9 +8,9 @@ import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
 from sklearn.model_selection import KFold
-from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
 from .data_loader import format_data
-from .physics import convert_v_to_f, get_geometry
+from core.physics import convert_v_to_f, get_geometry
 from tqdm import tqdm
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
@@ -56,14 +56,14 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     base_model_name = f"{entree}_{residuelle}_{inter}"
     saved_name = f"{base_model_name}_{suffixe}"
-    recap_path = "performance/recap_scores_globaux.csv"
+    recap_path = "training/performance/recap_scores_globaux.csv"
     is_cnn = (entree == 'GM')
     
     print(f"\n{'='*50}")
     print(f" ÉVALUATION EXHAUSTIVE (3 Folds CV | Fixe 1000 Epochs) : {saved_name}")
     print(f"{'='*50}")
     
-    hp_path = f"hyperparametres/{entree.lower()}_hyperparameters.json"
+    hp_path = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
     if not os.path.exists(hp_path): return
         
     with open(hp_path, "r") as f: all_hps = json.load(f)
@@ -79,15 +79,15 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     # ON CHARGE LES VRAIES FORCES SVEN (ABS) POUR TOUT LE MONDE (Dénominateur de l'erreur)
     _, Y_f_abs_tr = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
     _, Y_f_abs_te = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
-    with open(f"scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
+    with open(f"training/scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
     scaler_f_abs_torch = TorchScaler(scaler_f_abs, device)
     
     F_SVEN_phys_train_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_tr)
     F_SVEN_phys_test_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_te)
 
     if inter == 'v':
-        with open(f"scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
-        with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
+        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         
         scaler_v_torch = TorchScaler(scaler_v, device)
         scaler_f_torch = TorchScaler(scaler_f, device)
@@ -114,7 +114,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         if str(residuelle) == '1':
             _, Y_train_abs_v = format_data(df_train, entree, '0', inter, is_train=False, device=device)
             _, Y_test_abs_v = format_data(df_test, entree, '0', inter, is_train=False, device=device)
-            with open(f"scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs_v: scaler_v_abs = pickle.load(f_abs_v)
+            with open(f"training/scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs_v: scaler_v_abs = pickle.load(f_abs_v)
             scaler_v_abs_torch = TorchScaler(scaler_v_abs, device)
             
             V_SVEN_phys_tr = scaler_v_abs_torch.inverse_transform(Y_train_abs_v)
@@ -128,7 +128,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         F_TARGET_phys_train = F_SVEN_phys_train_abs 
         F_TARGET_phys_test = F_SVEN_phys_test_abs
     else:
-        with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
         F_TARGET_phys_train = scaler_f_torch.inverse_transform(Y_train)
         F_TARGET_phys_test = scaler_f_torch.inverse_transform(Y_test)
@@ -138,7 +138,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     
     if use_ae:
         latent_dim = best_params['latent_dim']
-        ae_configs = json.load(open("hyperparametres/ae_hyperparameters.json", "r"))
+        ae_configs = json.load(open("training/hyperparametres/ae_hyperparameters.json", "r"))
         ae_config = ae_configs[saved_name]
             
         if entree == 'GM':
@@ -147,7 +147,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         else:
             current_ae = LinearAutoencoder(in_features=Y_train.shape[1], latent_dim=latent_dim, device=device).to(device)
             
-        current_ae.load_state_dict(torch.load(f"models/ae/ae_{saved_name}.pth", map_location=device))
+        current_ae.load_state_dict(torch.load(f"training/models/ae/ae_{saved_name}.pth", map_location=device))
         current_ae.eval()
     else:
         latent_dim = 0
@@ -299,7 +299,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     preds_norm_np = preds_norm_out.cpu().numpy()
     preds_flat = preds_norm_np.reshape(preds_norm_np.shape[0], -1) if entree == 'GM' else preds_norm_np
 
-    with open(f"scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: scaler_Y = pickle.load(f)
+    with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: scaler_Y = pickle.load(f)
     preds_denorm = scaler_Y.inverse_transform(preds_flat)
     
     df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
@@ -346,8 +346,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     print(f"   -> Final Test(1000 ep.): {score_total_test:.2f}%")
 
     if score_total_test < 16.0:
-        os.makedirs(f"models/{entree}", exist_ok=True)
-        model_save_path = f"models/{entree}/model_{saved_name}.pth"
+        os.makedirs(f"training/models/{entree}", exist_ok=True)
+        model_save_path = f"training/models/{entree}/model_{saved_name}.pth"
         torch.save(model_final.state_dict(), model_save_path)
         print(f"   [SAUVEGARDE] Performance excellente (<16%). Modèle enregistré dans {model_save_path}")
 
@@ -377,7 +377,7 @@ def evaluate_baselines(df_test):
     }
     
     os.makedirs("performance", exist_ok=True)
-    recap_path = "performance/recap_scores_globaux.csv"
+    recap_path = "training/performance/recap_scores_globaux.csv"
     if os.path.exists(recap_path):
         df_recap = pd.read_csv(recap_path)
         df_recap = df_recap[df_recap["Modele"] != "BASELINE_BEM"]

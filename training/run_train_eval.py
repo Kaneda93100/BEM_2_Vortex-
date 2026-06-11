@@ -1,10 +1,10 @@
 import time
 import os
-from src.data_loader import load_clean_data, get_splits
-from src.optimize_ae import optimize_and_train_ae
-from src.optimize import optimize
-from src.evaluate import evaluator, evaluate_baselines
-from src.baseline_boost import train_latent_boosting
+from training.src.data_loader import load_clean_data, get_splits
+from training.src.optimize_ae import optimize_and_train_ae
+from training.src.optimize import optimize
+from training.src.evaluate import evaluator, evaluate_baselines
+from training.src.baseline_boost import train_latent_boosting
 
 def format_duration(seconds):
     """Transforme des secondes en un format lisible."""

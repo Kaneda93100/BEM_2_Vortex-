@@ -17,15 +17,15 @@ from tqdm import tqdm
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 warnings.filterwarnings("ignore", category=UserWarning, module="lightgbm")
 
-from .models import LinearAutoencoder
+from core.models import LinearAutoencoder
 from .data_loader import format_data
-from .physics import convert_v_to_f
+from core.physics import convert_v_to_f
 from .evaluate import reconstruct_predictions
 
 def optimize_lgbm(X_train, Z_train, saved_name, n_trials=50):
     """ Optimise et SAUVEGARDE les hyperparamètres de LightGBM """
     os.makedirs("hyperparametres", exist_ok=True)
-    hp_master_path = "hyperparametres/lgbm_hyperparameters.json"
+    hp_master_path = "training/hyperparametres/lgbm_hyperparameters.json"
     
     if os.path.exists(hp_master_path):
         with open(hp_master_path, "r") as f:
@@ -74,10 +74,10 @@ def train_latent_boosting(df_train, df_test, entree='GV', residuelle=1, inter='f
     saved_name = f"{base_model_name}_{suffixe}"
     boost_name = f"{saved_name}_LightGBM_Latent"
     
-    recap_path = "performance/recap_scores_globaux.csv"
-    ae_weights_path = f"models/ae/ae_{saved_name}.pth"
-    os.makedirs("models/LightGBM", exist_ok=True)
-    boost_model_path = f"models/LightGBM/model_{boost_name}.pkl"
+    recap_path = "training/performance/recap_scores_globaux.csv"
+    ae_weights_path = f"training/models/ae/ae_{saved_name}.pth"
+    os.makedirs("training/models/LightGBM", exist_ok=True)
+    boost_model_path = f"training/models/LightGBM/model_{boost_name}.pkl"
     
     print(f"\n{'='*50}")
     print(f" RUN LATENT BOOSTING : {boost_name}")
@@ -111,7 +111,7 @@ def train_latent_boosting(df_train, df_test, entree='GV', residuelle=1, inter='f
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     cv_phys_scores = []
     
-    with open(f"scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: 
+    with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: 
         scaler_Y = pickle.load(f)
         
     for train_idx, val_idx in kf.split(X_train_np):

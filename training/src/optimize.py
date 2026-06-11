@@ -6,9 +6,9 @@ import os
 import numpy as np
 import pickle
 from sklearn.model_selection import KFold
-from .models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
 from .data_loader import format_data
-from .physics import get_geometry
+from core.physics import get_geometry
 from tqdm import tqdm
 
 def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
@@ -37,8 +37,8 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         # Force la création du scaler_f
         _, _ = format_data(df_train, entree, residuelle, 'f', is_train=True, device=device)
         
-        with open(f"scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
-        with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
+        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_v_torch = TorchScaler(scaler_v, device)
         scaler_f_torch = TorchScaler(scaler_f, device)
         
@@ -66,7 +66,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
             _, Y_full_abs = format_data(df_train, entree, '0', inter, is_train=True, device=device)
             
             # Utilisation du scaler ABSOLU pour dénormaliser les cibles absolues
-            with open(f"scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: 
+            with open(f"training/scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: 
                 scaler_v_abs = pickle.load(f_abs)
             scaler_v_abs_torch = TorchScaler(scaler_v_abs, device)
             
@@ -74,7 +74,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
             Delta_V_phys_full = scaler_v_torch.inverse_transform(Y_full)
             V_BEM_phys_full = V_SVEN_phys_full - Delta_V_phys_full
     else:
-        with open(f"scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
+        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         scaler_f_torch = TorchScaler(scaler_f, device)
 
     
@@ -87,8 +87,8 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
         ae_params = {"use_autoencoder": False, "latent_dim": 0}
         current_ae = None
     else:
-        ae_master_path = "hyperparametres/ae_hyperparameters.json"
-        ae_weights_path = f"models/ae/ae_{saved_name}.pth"
+        ae_master_path = "training/hyperparametres/ae_hyperparameters.json"
+        ae_weights_path = f"training/models/ae/ae_{saved_name}.pth"
         
         use_ae = os.path.exists(ae_master_path) and os.path.exists(ae_weights_path)
         if use_ae:
@@ -240,7 +240,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
     final_params = {**ae_params, **study_model.best_params}
     final_params["Total_Score_CV"] = best_cv_phys 
     
-    target_json = f"hyperparametres/{entree.lower()}_hyperparameters.json"
+    target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
     if os.path.exists(target_json):
         with open(target_json, "r") as f: all_model_params = json.load(f)
     else:

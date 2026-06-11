@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.data_loader import load_clean_data
-from src.physics import convert_v_to_f, get_geometry
-from src.models import PolarSurrogate, convert_v_to_f_torch
+from training.src.data_loader import load_clean_data
+from .physics import convert_v_to_f, get_geometry
+from .models import PolarSurrogate, convert_v_to_f_torch
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

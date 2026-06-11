@@ -3,7 +3,7 @@ import json
 import torch
 import torch.nn as nn
 import os
-from .models import ConvolutionalAutoencoder, LinearAutoencoder
+from core.models import ConvolutionalAutoencoder, LinearAutoencoder
 from .data_loader import format_data
 from tqdm import tqdm
 
@@ -19,12 +19,12 @@ def optimize_and_train_ae(df_train, entree, residuelle, inter, latent_dim, n_tri
     saved_name = f"{base_model_name}_{suffixe}"
     
     os.makedirs("hyperparametres", exist_ok=True)
-    os.makedirs("models/ae", exist_ok=True)
+    os.makedirs("training/models/ae", exist_ok=True)
     
-    # Vérification de l'existence des poids directement dans le dossier 'models/ae/'
-    ae_weights_path = f"models/ae/ae_{saved_name}.pth"
+    # Vérification de l'existence des poids directement dans le dossier 'training/models/ae/'
+    ae_weights_path = f"training/models/ae/ae_{saved_name}.pth"
     if os.path.exists(ae_weights_path):
-        print(f"   [INFO] Auto-encodeur {saved_name} déjà existant dans 'models/'. Entraînement ignoré.")
+        print(f"   [INFO] Auto-encodeur {saved_name} déjà existant dans 'training/models/'. Entraînement ignoré.")
         return
 
     print(f"\n{'='*50}")
@@ -97,7 +97,7 @@ def optimize_and_train_ae(df_train, entree, residuelle, inter, latent_dim, n_tri
             pbar.set_postfix({"Loss": f"{loss.item():.6f}"})
 
     # --- Fichier JSON Global ---
-    json_master_path = "hyperparametres/ae_hyperparameters.json"
+    json_master_path = "training/hyperparametres/ae_hyperparameters.json"
     
     # Charger le dictionnaire existant ou en créer un nouveau
     if os.path.exists(json_master_path):
@@ -112,7 +112,7 @@ def optimize_and_train_ae(df_train, entree, residuelle, inter, latent_dim, n_tri
     with open(json_master_path, "w") as f:
         json.dump(all_ae_params, f, indent=4)
         
-    # Enregistrement du fichier de poids .pth dans le dossier 'models/'
+    # Enregistrement du fichier de poids .pth dans le dossier 'training/models/'
     torch.save(final_ae.state_dict(), ae_weights_path)
     
     print(f"   [OK] Hyperparamètres ajoutés au dictionnaire {json_master_path}")
