@@ -1,20 +1,3 @@
-# Ne garder que slides.tex et loadslides.tex
-slide/*.aux
-slide/*.bcf
-slide/*.fdb_latexmk
-slide/*.fls
-slide/*.log
-slide/*.nav
-slide/*.out
-slide/*.pdf
-slide/*.snm
-slide/*.gz
-slide/*.toc
-slide/*.vrb
-
-# Environnement virtuel
-B2V
-
 # --- Sorties et fichiers générés ---
 scalers/
 images/
@@ -23,7 +6,9 @@ performance/*
 !performance/recap_scores_globaux.csv
 
 Slides/*
-!Slides/*.tex
+!Slides/slide 12_05_26/*.tex
+!Slides/slide 22_05_26/*.tex
+!Slides/slide 10_06_26/*.tex
 Slides/*.png
 
 __pycache__/
