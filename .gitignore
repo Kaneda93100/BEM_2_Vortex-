@@ -18,9 +18,13 @@ B2V
 # --- Sorties et fichiers générés ---
 scalers/
 images/
-performance/*
 
+performance/*
 !performance/recap_scores_globaux.csv
+
+Slides/*
+!Slides/*.tex
+Slides/*.png
 
 __pycache__/
 *.py[cod]
