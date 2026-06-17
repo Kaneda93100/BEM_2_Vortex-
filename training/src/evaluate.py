@@ -9,12 +9,12 @@ import numpy as np
 from scipy.stats import wasserstein_distance
 from sklearn.model_selection import KFold
 from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
-from .data_loader import format_data
+from training.src.data_loader import format_data, get_D_tensor
 from core.physics import convert_v_to_f, get_geometry
 from tqdm import tqdm
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
-    """ Réaligne les prédictions (déjà décodées et dénormalisées) selon la topologie d'origine. """
+    """ Réaligne les prédictions (déjà décodées et en dimensions physiques) selon la topologie d'origine. """
     res_str = str(residuelle)
     if inter == 'f':
         c1, c2 = 'Fn', 'Ft'
@@ -76,16 +76,15 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     # =========================================================================
     # INITIALISATION : SCALERS & RÉFÉRENCES PHYSIQUES
     # =========================================================================
-    # ON CHARGE LES VRAIES FORCES SVEN (ABS) POUR TOUT LE MONDE (Dénominateur de l'erreur)
-    _, Y_f_abs_tr = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
-    _, Y_f_abs_te = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
-    with open(f"training/scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
-    scaler_f_abs_torch = TorchScaler(scaler_f_abs, device)
-    
-    F_SVEN_phys_train_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_tr)
-    F_SVEN_phys_test_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_te)
-
     if inter == 'v':
+        _, Y_f_abs_tr = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
+        _, Y_f_abs_te = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
+        with open(f"training/scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
+        scaler_f_abs_torch = TorchScaler(scaler_f_abs, device)
+        
+        F_SVEN_phys_train_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_tr)
+        F_SVEN_phys_test_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_te)
+
         with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
         with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         
@@ -127,11 +126,24 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             
         F_TARGET_phys_train = F_SVEN_phys_train_abs 
         F_TARGET_phys_test = F_SVEN_phys_test_abs
+        
     else:
-        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
-        scaler_f_torch = TorchScaler(scaler_f, device)
-        F_TARGET_phys_train = scaler_f_torch.inverse_transform(Y_train)
-        F_TARGET_phys_test = scaler_f_torch.inverse_transform(Y_test)
+
+        D_train_full = get_D_tensor(df_train, entree, device)
+        D_test_full = get_D_tensor(df_test, entree, device)
+        
+        # On récupère les forces absolues de SVEN normalisées (résiduelle=0)
+        _, Y_train_abs_norm = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
+        _, Y_test_abs_norm = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
+        
+        # Multiplication par D pour avoir les vraies forces absolues SVEN en N/m
+        F_SVEN_phys_train_abs = Y_train_abs_norm * D_train_full
+        F_SVEN_phys_test_abs = Y_test_abs_norm * D_test_full
+        
+        # Y_train et Y_test contiennent les cibles du modèle (Soit Fn/D, soit delta_Fn/D)
+        # On multiplie par D pour avoir les forces cibles à reconstruire en N/m
+        F_TARGET_phys_train = Y_train * D_train_full
+        F_TARGET_phys_test = Y_test * D_test_full
 
     use_ae = best_params.get('use_autoencoder', False) and suffixe != 'D0'
     Y_train_target = Y_train
@@ -155,12 +167,14 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
 
     target_dim = latent_dim if use_ae else Y_train.shape[1]
 
+    # Définition de la fonction de perte
     if inter == 'v':
         criterion = PhysicsInformedLoss(current_ae, scaler_v, scaler_f, 0.5, r_tensor, c_tensor, polar_surrogate, device)
     else:
+        # Pour 'f', la DecoderLoss effectue simplement une MSE sur l'espace normalisé !
         criterion = DecoderLoss(current_ae)
 
-    def compute_metrics(model, X_eval, target_phys_eval, abs_sven_phys_eval, v_bem_phys_eval=None):
+    def compute_metrics(model, X_eval, target_phys_eval, abs_sven_phys_eval, v_bem_phys_eval=None, D_eval=None):
         with torch.no_grad():
             preds_norm = current_ae.decode(model(X_eval)) if use_ae else model(X_eval)
             
@@ -188,7 +202,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
                 mean_fn_eval = torch.mean(torch.abs(Fn_t_abs))
                 mean_ft_eval = torch.mean(torch.abs(Ft_t_abs))
             else:
-                f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
+                # Retour à la physique pour le calcul des scores N/m
+                f_pred_phys = preds_norm * D_eval
+                
                 if is_cnn:
                     Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
                     Fn_t_target, Ft_t_target = target_phys_eval[:, 0], target_phys_eval[:, 1]
@@ -245,9 +261,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             loss_cv.backward()
             optimizer_cv.step()
             
-        # Évaluation finale du fold après 1000 epochs
+        # Évaluation finale du fold après 1000 epochs (avec passage de D_eval pour inter f)
         model_cv.eval()
-        score_val = compute_metrics(model_cv, X_val_cv, F_TARGET_phys_train[val_idx], F_SVEN_phys_train_abs[val_idx], v_bem_val_cv)
+        d_eval_cv = D_train_full[val_idx] if inter == 'f' else None
+        score_val = compute_metrics(model_cv, X_val_cv, F_TARGET_phys_train[val_idx], F_SVEN_phys_train_abs[val_idx], v_bem_val_cv, D_eval=d_eval_cv)
         cv_scores[fold] = score_val
 
     # --- Calcul de la CV à 1000 Epochs ---
@@ -290,7 +307,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     if best_model_weights is not None:
         model_final.load_state_dict(best_model_weights)
 
-    # --- CALCULS FINAUX SUR LE JEU DE TEST ---
+    # =========================================================================
+    # PHASE 3 : CALCULS FINAUX SUR LE JEU DE TEST
+    # =========================================================================
     model_final.eval()
     with torch.no_grad(): 
         preds_raw = model_final(X_test)
@@ -299,10 +318,31 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     preds_norm_np = preds_norm_out.cpu().numpy()
     preds_flat = preds_norm_np.reshape(preds_norm_np.shape[0], -1) if entree == 'GM' else preds_norm_np
 
-    with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: scaler_Y = pickle.load(f)
-    preds_denorm = scaler_Y.inverse_transform(preds_flat)
-    
+    rmse_fn_norm, rmse_ft_norm = None, None
+
+    if inter == 'v':
+        with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: scaler_Y = pickle.load(f)
+        preds_denorm = scaler_Y.inverse_transform(preds_flat)
+    else:
+        # --- CALCUL DES MÉTRIQUES NORMALISÉES (SANS UNITÉ) ---
+        Y_test_np = Y_test.cpu().numpy()
+        if entree == 'GM':
+            Fn_norm_p, Ft_norm_p = preds_norm_np[:, 0], preds_norm_np[:, 1]
+            Fn_norm_t, Ft_norm_t = Y_test_np[:, 0], Y_test_np[:, 1]
+        else:
+            Fn_norm_p, Ft_norm_p = preds_norm_np[:, 0::2], preds_norm_np[:, 1::2]
+            Fn_norm_t, Ft_norm_t = Y_test_np[:, 0::2], Y_test_np[:, 1::2]
+            
+        rmse_fn_norm = np.sqrt(np.mean((Fn_norm_p - Fn_norm_t)**2))
+        rmse_ft_norm = np.sqrt(np.mean((Ft_norm_p - Ft_norm_t)**2))
+        
+        # --- DÉNORMALISATION PHYSIQUE (Multiplication par D) ---
+        D_test_np = D_test_full.cpu().numpy()
+        D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1) if entree == 'GM' else D_test_np
+        preds_denorm = preds_flat * D_test_flat 
+
     df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
+    
     if inter == 'v':
         df_res['Fn_pred'], df_res['Ft_pred'] = convert_v_to_f(df_res['V_eff_pred'].values, df_res['alpha_pred'].values, df_res['r'].values)
     
@@ -316,18 +356,26 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     score_total_test = rel_fn + rel_ft
     wd_score = wasserstein_distance(Fn_s, Fn_p) + wasserstein_distance(Ft_s, Ft_p)
     
+    # Construction du dictionnaire de résultats
     results_detail = {
         "Modele": saved_name, "Strat_Entree": entree, "Residuelle": residuelle, "Intermediaire": inter, "Suffixe": suffixe,
-        "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), 
+        "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4)
+    }
+    
+    if inter == 'f':
+        results_detail["RMSE_Fn_norm"] = round(rmse_fn_norm, 4)
+        results_detail["RMSE_Ft_norm"] = round(rmse_ft_norm, 4)
+        
+    results_detail.update({
         "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
         "Total_Score_Test (%)": round(score_total_test, 2),
         "Total_Score_CV_150 (%)": round(best_params.get("Total_Score_CV", -1.0), 2),
         "Total_Score_CV2_1000 (%)": round(mean_cv_1000, 2), 
         "CV2_Variance (%)": round(std_cv_1000, 2),
         "Wasserstein_Dist": round(wd_score, 4)
-    }
+    })
     
-    os.makedirs("performance", exist_ok=True)
+    os.makedirs("training/performance", exist_ok=True)
     if os.path.exists(recap_path):
         df_recap = pd.read_csv(recap_path)
         df_recap = df_recap[df_recap["Modele"] != saved_name]
@@ -368,6 +416,7 @@ def evaluate_baselines(df_test):
     results_detail = {
         "Modele": "BASELINE_BEM", "Strat_Entree": "BEM", "Residuelle": "-", "Intermediaire": "-", "Suffixe": "-",
         "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), 
+        "RMSE_Fn_norm": None, "RMSE_Ft_norm": None,
         "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
         "Total_Score_Test (%)": round(score_total, 2), 
         "Total_Score_CV_150 (%)": -1.0, 
@@ -376,7 +425,7 @@ def evaluate_baselines(df_test):
         "Wasserstein_Dist": round(wd_score_baseline, 4)
     }
     
-    os.makedirs("performance", exist_ok=True)
+    os.makedirs("training/performance", exist_ok=True)
     recap_path = "training/performance/recap_scores_globaux.csv"
     if os.path.exists(recap_path):
         df_recap = pd.read_csv(recap_path)

@@ -14,7 +14,7 @@ PITCH_RAD = -0.040143       # Angle de pitch en radians (-2.3 degrés)
 # GESTIONNAIRE DE GÉOMÉTRIE
 # ==========================================
 class BladeGeometry:
-    def __init__(self, geom_file="data/geometry/blade_geom.csv", airfoils_file="geometry/airfoils.csv"):
+    def __init__(self, geom_file="data/geometry/blade_geom.csv", airfoils_file="data/geometry/airfoils.csv"):
         self.geom_file = geom_file
         self.airfoils_file = airfoils_file
         
@@ -189,3 +189,31 @@ def compute_cp(df, col_fn, col_ft, R_rotor=2.25, Nb_pales=3, omega=44.5163679):
         results.append(res_dict)
         
     return pd.DataFrame(results)
+
+def compute_dynamic_pressure_D(df, R_rotor=2.25, omega=44.5163679):
+    """
+    Calcule le dénominateur de normalisation géométrique D (Option 4).
+    D = 0.5 * rho * V_app^2 * |c(r)|
+    """
+    geom = get_geometry()
+    
+    # 1. Conversions des angles en radians
+    theta_rad = np.radians(df['theta'].values)
+    yaw_rad = np.radians(df['yaw'].values)
+    
+    # 2. Vitesse du vent au loin (U_infty) basée sur le TSR
+    tsr_val = df['TSR'].values if 'TSR' in df.columns else np.full(len(df), 8.0)
+    u_vent = (omega * R_rotor) / tsr_val
+    
+    # 3. Rayon et valeur absolue de la corde locale (correction de la coquille)
+    r_val = df['r'].values
+    c_val = np.array([float(geom.get_chord(ri)) for ri in r_val])
+    c_val = np.abs(c_val) # Correction de la coquille géométrique
+    
+    # 4. Vitesse apparente géométrique au carré (V_app^2)
+    v_app_sq = (u_vent**2) + (omega * r_val)**2 - 2 * u_vent * omega * r_val * np.sin(yaw_rad) * np.cos(theta_rad)
+    
+    # 5. Pression dynamique locale adimensionnée par la corde
+    D = 0.5 * RHO * v_app_sq * c_val
+    
+    return D

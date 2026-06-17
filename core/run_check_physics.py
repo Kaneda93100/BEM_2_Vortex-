@@ -1,10 +1,17 @@
 import numpy as np
 import pandas as pd
 import torch
+import sys
+from pathlib import Path
+
+# Récupère le chemin de la racine (un niveau au-dessus du dossier de ce script)
+root_path = str(Path(__file__).resolve().parent.parent)
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
 
 from training.src.data_loader import load_clean_data
-from .physics import convert_v_to_f, get_geometry
-from .models import PolarSurrogate, convert_v_to_f_torch
+from core.physics import convert_v_to_f, get_geometry,compute_dynamic_pressure_D
+from core.models import PolarSurrogate, convert_v_to_f_torch
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -65,6 +72,41 @@ def main():
             print(f" [{label}] :")
             print(f"    Erreur Fn : {err_fn:.4f} N/m ({rel_fn:.2f}%)")
             print(f"    Erreur Ft : {err_ft:.4f} N/m ({rel_ft:.2f}%)")
+
+    # =================================================================
+    # ANALYSE DE LA NORMALISATION PAR PRESSION DYNAMIQUE (OPTION 4)
+    # =================================================================
+    print("\n=== ANALYSE DE LA NORMALISATION PHYSIQUE (OPTION 4) ===")
+    
+    # Calcul du dénominateur physique
+    D = compute_dynamic_pressure_D(df)
+    
+    # Masque de sécurité pour éviter une éventuelle division par un D trop proche de 0
+    mask_valid = D > 1e-6 
+    
+    Cn_SVEN = df['Fn_SVEN'].values[mask_valid] / D[mask_valid]
+    Ct_SVEN = df['Ft_SVEN'].values[mask_valid] / D[mask_valid]
+    
+    print(f"Nombre de points analysés : {np.sum(mask_valid)} / {len(df)}")
+    
+    print("\n[Fn_SVEN / D]  =>  (Equivalent Cn)")
+    print(f"  Moyenne    : {np.mean(Cn_SVEN):.4f}")
+    print(f"  Écart-type : {np.std(Cn_SVEN):.4f}")
+    print(f"  Min        : {np.min(Cn_SVEN):.4f}  |  Max : {np.max(Cn_SVEN):.4f}")
+    q5, q50, q95 = np.percentile(Cn_SVEN, [5, 50, 95])
+    print(f"  Percentiles: 5%={q5:.4f}  |  Médiane={q50:.4f}  |  95%={q95:.4f}")
+
+    print("\n[Ft_SVEN / D]  =>  (Equivalent Ct)")
+    print(f"  Moyenne    : {np.mean(Ct_SVEN):.4f}")
+    print(f"  Écart-type : {np.std(Ct_SVEN):.4f}")
+    print(f"  Min        : {np.min(Ct_SVEN):.4f}  |  Max : {np.max(Ct_SVEN):.4f}")
+    q5_t, q50_t, q95_t = np.percentile(Ct_SVEN, [5, 50, 95])
+    print(f"  Percentiles: 5%={q5_t:.4f}  |  Médiane={q50_t:.4f}  |  95%={q95_t:.4f}")
+    
+    # Vérification du rapport d'échelle
+    ratio = np.mean(np.abs(Cn_SVEN)) / np.mean(np.abs(Ct_SVEN))
+    print(f"\nRapport d'amplitude absolu (Moy |Cn| / Moy |Ct|) : {ratio:.2f}")
+    print("  -> (Pour rappel, sur les forces brutes Fn/Ft, ce rapport est d'environ 9.0)")
 
 if __name__ == "__main__":
     main()

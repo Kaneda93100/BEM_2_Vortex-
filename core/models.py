@@ -284,7 +284,7 @@ class PolarSurrogate(nn.Module):
     """ 
     Interpolateur 1D vectorisé par section de pale, 100% PyTorch.
     """
-    def __init__(self, device='cpu', csv_path="geometry/airfoils.csv"):
+    def __init__(self, device='cpu', csv_path="data/geometry/airfoils.csv"):
         super().__init__()
         
         df = pd.read_csv(csv_path)

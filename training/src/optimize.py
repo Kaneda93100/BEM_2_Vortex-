@@ -7,7 +7,7 @@ import numpy as np
 import pickle
 from sklearn.model_selection import KFold
 from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
-from .data_loader import format_data
+from .data_loader import format_data,get_D_tensor
 from core.physics import get_geometry
 from tqdm import tqdm
 
@@ -74,8 +74,7 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
             Delta_V_phys_full = scaler_v_torch.inverse_transform(Y_full)
             V_BEM_phys_full = V_SVEN_phys_full - Delta_V_phys_full
     else:
-        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
-        scaler_f_torch = TorchScaler(scaler_f, device)
+        D_full = get_D_tensor(df_train, entree, device)
 
     
     # --- 1. Gestion de l'Auto-encodeur ---
@@ -209,8 +208,10 @@ def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
                         Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
                         Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
                 else:
-                    f_pred_phys = scaler_f_torch.inverse_transform(preds_norm)
-                    f_true_phys = scaler_f_torch.inverse_transform(Y_val)
+
+                    D_val = D_full[val_idx]
+                    f_pred_phys = preds_norm * D_val
+                    f_true_phys = Y_val * D_val
                     
                     if is_cnn:
                         Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]

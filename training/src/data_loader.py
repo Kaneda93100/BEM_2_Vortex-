@@ -1,4 +1,3 @@
-import sys
 import os
 import numpy as np
 import pandas as pd
@@ -18,9 +17,7 @@ def load_clean_data(path_forces="data/raw/fichier_forces.csv", path_vitesses="da
     return df_f.merge(df_v, on=merge_keys)
 
 def get_splits(df, seed=42, test_size=0.2, save_dir=None):
-    """ Séparation : 80% Train / 20% Test. (On sépare par Yaw) """
     yaws_uniques = df['yaw'].unique()
-    
     train_yaw, test_yaw = train_test_split(yaws_uniques, test_size=test_size, random_state=seed)
     
     train_df = df[df['yaw'].isin(train_yaw)].copy()
@@ -34,21 +31,56 @@ def get_splits(df, seed=42, test_size=0.2, save_dir=None):
 
     return train_df, test_df
 
+def get_D_tensor(df, entree, device='cpu'):
+    """ Calcule et formate le tenseur de pression dynamique D """
+    from core.physics import compute_dynamic_pressure_D
+    df_calc = df.copy()
+    if 'TSR' not in df_calc.columns: 
+        df_calc['TSR'] = 8.0
+        
+    df_calc['D'] = compute_dynamic_pressure_D(df_calc).clip(lower=1e-6)
+    
+    D_list = []
+    grouped = df_calc.groupby(['yaw', 'TSR'])
+    
+    if entree == 'GV':
+        for _, group in grouped:
+            group = group.sort_values(['theta', 'r'])
+            # Y a deux valeurs (Fn, Ft) par noeud, on duplique donc D pour correspondre
+            D_flat = np.repeat(group['D'].values, 2)
+            D_list.append(D_flat)
+            
+    elif entree == 'GM':
+        r_uniques = np.sort(df_calc['r'].unique())
+        theta_uniques = np.sort(df_calc['theta'].unique())
+        for _, group in grouped:
+            group = group.sort_values(['r', 'theta'])
+            d_val = group['D'].values.reshape(len(r_uniques), len(theta_uniques))
+            d_tensor_img = np.stack([d_val, d_val])
+            D_list.append(d_tensor_img)
+            
+    return torch.tensor(np.array(D_list), dtype=torch.float32, device=device)
+
 def format_data(df, entree, res, inter, is_train, device='cpu'):
     res_str = str(res)
+    df_work = df.copy()
+    if 'TSR' not in df_work.columns:
+        df_work['TSR'] = 8.0
     
-    if inter == 'f': cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
-    elif inter == 'v': cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
+    if inter == 'f': 
+        from core.physics import compute_dynamic_pressure_D
+        D = compute_dynamic_pressure_D(df_work).clip(lower=1e-6)
+        cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
+        
+        for col in cols_sven + cols_bem:
+            df_work[col] = df_work[col] / D
+            
+    elif inter == 'v': 
+        cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
 
-    # Sécurité au cas où on passe un DataFrame sans TSR
-    if 'TSR' not in df.columns:
-        df['TSR'] = 8.0
-
-    # ==========================================
-    # STRATÉGIE GV (Global Vector) - MLP
-    # ==========================================
+    # --- Stratégie GV ---
     if entree == 'GV': 
-        grouped = df.groupby(['yaw', 'TSR'])
+        grouped = df_work.groupby(['yaw', 'TSR'])
         X_list, Y_list = [], []
         
         for (y_val, tsr_val), group in grouped:
@@ -67,20 +99,17 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
             Y_list.append(Y_val)
         X_np, Y_np = np.array(X_list), np.array(Y_list)
 
-    # ==========================================
-    # STRATÉGIE GM (Global Matrix) - Image/CNN
-    # ==========================================
+    # --- Stratégie GM ---
     elif entree == 'GM':
-        grouped = df.groupby(['yaw', 'TSR'])
+        grouped = df_work.groupby(['yaw', 'TSR'])
         X_list, Y_list = [], []
         
-        r_uniques = np.sort(df['r'].unique())
-        theta_uniques = np.sort(df['theta'].unique())
+        r_uniques = np.sort(df_work['r'].unique())
+        theta_uniques = np.sort(df_work['theta'].unique())
         
         for (y_val, tsr_val), group in grouped:
             group = group.sort_values(['r', 'theta'])
             
-            # Reshape (36*36, 2) -> (36, 36, 2) -> Transpose pour (Canaux, Hauteur, Largeur) -> (2, 36, 36)
             y_sven = group[cols_sven].values.reshape(len(r_uniques), len(theta_uniques), 2).transpose(2, 0, 1)
             y_bem = group[cols_bem].values.reshape(len(r_uniques), len(theta_uniques), 2).transpose(2, 0, 1)
             
@@ -89,12 +118,10 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
             
             if res_str == '1':
                 Y_val = y_sven - y_bem
-                # Entrée : 4 canaux (BEM 1, BEM 2, Yaw, TSR)
                 X_val = np.stack([y_bem[0], y_bem[1], yaw_channel, tsr_channel])
             else:
                 Y_val = y_sven
                 R_grid, Theta_grid = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
-                # Entrée : 4 canaux (Yaw, TSR, Grille r, Grille theta)
                 X_val = np.stack([yaw_channel, tsr_channel, R_grid, Theta_grid])
                 
             X_list.append(X_val)
@@ -109,8 +136,9 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
     # NORMALISATION (SCALING)
     # ==========================================
     model_name = f"{entree}_{res_str}_{inter}"
-    os.makedirs("scalers", exist_ok=True)
-    path_x, path_y = f"training/scalers/scaler_X_{model_name}.pkl", f"training/scalers/scaler_Y_{model_name}.pkl"    
+    os.makedirs("training/scalers", exist_ok=True)
+    path_x = f"training/scalers/scaler_X_{model_name}.pkl"
+    path_y = f"training/scalers/scaler_Y_{model_name}.pkl"    
 
     original_shape_X = X_np.shape
     original_shape_Y = Y_np.shape
@@ -120,16 +148,31 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
         Y_np = Y_np.reshape(Y_np.shape[0], -1)
 
     if is_train:
-        scaler_X, scaler_Y = StandardScaler(), StandardScaler()
+        scaler_X = StandardScaler()
         X_scaled = scaler_X.fit_transform(X_np)
-        Y_scaled = scaler_Y.fit_transform(Y_np)
-        with open(path_x, 'wb') as f: pickle.dump(scaler_X, f)
-        with open(path_y, 'wb') as f: pickle.dump(scaler_Y, f)
+        with open(path_x, 'wb') as f: 
+            pickle.dump(scaler_X, f)
+        
+
+        if inter == 'v':
+            scaler_Y = StandardScaler()
+            Y_scaled = scaler_Y.fit_transform(Y_np)
+            with open(path_y, 'wb') as f: 
+                pickle.dump(scaler_Y, f)
+        else:
+            Y_scaled = Y_np
+            
     else:
-        with open(path_x, 'rb') as f: scaler_X = pickle.load(f)
-        with open(path_y, 'rb') as f: scaler_Y = pickle.load(f)
+        with open(path_x, 'rb') as f: 
+            scaler_X = pickle.load(f)
         X_scaled = scaler_X.transform(X_np)
-        Y_scaled = scaler_Y.transform(Y_np)    
+        
+        if inter == 'v':
+            with open(path_y, 'rb') as f: 
+                scaler_Y = pickle.load(f)
+            Y_scaled = scaler_Y.transform(Y_np)
+        else:
+            Y_scaled = Y_np    
 
     if entree == 'GM':
         X_scaled = X_scaled.reshape(original_shape_X)
