@@ -10,8 +10,11 @@ if root_path not in sys.path:
     sys.path.insert(0, root_path)
 
 from training.src.data_loader import load_clean_data
-from core.physics import convert_v_to_f, get_geometry,compute_dynamic_pressure_D
+from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D
 from core.models import PolarSurrogate, convert_v_to_f_torch
+
+# Constantes pour le calcul de V_app
+from core.config import OMEGA, R_ROTOR
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -73,6 +76,78 @@ def main():
             print(f"    Erreur Fn : {err_fn:.4f} N/m ({rel_fn:.2f}%)")
             print(f"    Erreur Ft : {err_ft:.4f} N/m ({rel_ft:.2f}%)")
 
+
+    # =================================================================
+    # STATISTIQUES SUR a_n ET a_t (CARTÉSIEN ADIMENSIONNEL)
+    # =================================================================
+    print("\n=== ANALYSE DES COORDONNÉES CARTÉSIENNES (an, at) ===")
+    
+    # 1. Calcul de V_app
+    theta_rad = np.radians(df['theta'].values)
+    yaw_rad = np.radians(df['yaw'].values)
+    tsr_val = df['TSR'].values if 'TSR' in df.columns else np.full(len(df), 8.0)
+    u_vent = (OMEGA * R_ROTOR) / tsr_val
+    
+    v_app_sq = (u_vent**2) + (OMEGA * r_vals)**2 - 2 * u_vent * OMEGA * r_vals * np.sin(yaw_rad) * np.cos(theta_rad)
+    V_app = np.sqrt(v_app_sq)
+    
+    # 2. Conversion Polaire -> Cartésien
+    alpha_sven_rad = np.radians(df['alpha_SVEN'].values)
+    V_eff_sven = df['V_eff_SVEN'].values
+    
+    an_sven = np.sin(alpha_sven_rad) * V_eff_sven / V_app
+    at_sven = np.cos(alpha_sven_rad) * V_eff_sven / V_app
+
+    print("\n[a_n SVEN]  => Composante Normale Adimensionnelle")
+    print(f"  Moyenne    : {np.mean(an_sven):.4f}")
+    print(f"  Écart-type : {np.std(an_sven):.4f}")
+    print(f"  Min        : {np.min(an_sven):.4f}  |  Max : {np.max(an_sven):.4f}")
+
+    print("\n[a_t SVEN]  => Composante Tangentielle Adimensionnelle")
+    print(f"  Moyenne    : {np.mean(at_sven):.4f}")
+    print(f"  Écart-type : {np.std(at_sven):.4f}")
+    print(f"  Min        : {np.min(at_sven):.4f}  |  Max : {np.max(at_sven):.4f}")
+
+
+    # =================================================================
+    # VÉRIFICATION DE LA RECONSTRUCTION DIFFÉRENTIABLE
+    # =================================================================
+    print("\n=== VÉRIFICATION RECONSTRUCTION DIFFÉRENTIABLE (an, at -> Fn, Ft) ===")
+    
+    an_t = torch.tensor(an_sven, dtype=torch.float32, device=device)
+    at_t = torch.tensor(at_sven, dtype=torch.float32, device=device)
+    v_app_t = torch.tensor(V_app, dtype=torch.float32, device=device)
+
+    # 1. arctan2 -> alpha_deg
+    alpha_reconst_deg = torch.atan2(an_t, at_t) * (180.0 / torch.pi)
+    
+    # 2. V_app * norm(an, at) -> V_eff
+    v_eff_reconst = v_app_t * torch.sqrt(an_t**2 + at_t**2)
+
+    # 3. Projection PyTorch via Surrogate Polaire
+    with torch.no_grad():
+        f_reconst_torch = convert_v_to_f_torch(v_eff_reconst, alpha_reconst_deg, r_tensor, c_tensor, polar_surrogate)
+
+    calc_fn_reconst = f_reconst_torch[..., 0].cpu().numpy()
+    calc_ft_reconst = f_reconst_torch[..., 1].cpu().numpy()
+
+    val_fn_sven = df['Fn_SVEN'].values
+    val_ft_sven = df['Ft_SVEN'].values
+
+    err_fn_rec = np.mean(np.abs(calc_fn_reconst - val_fn_sven))
+    err_ft_rec = np.mean(np.abs(calc_ft_reconst - val_ft_sven))
+    
+    mean_fn_sven = np.mean(np.abs(val_fn_sven))
+    mean_ft_sven = np.mean(np.abs(val_ft_sven))
+    
+    rel_fn_rec = (err_fn_rec / mean_fn_sven) * 100 if mean_fn_sven > 0 else 0
+    rel_ft_rec = (err_ft_rec / mean_ft_sven) * 100 if mean_ft_sven > 0 else 0
+    
+    print(f"  Erreur Fn reconstruit : {err_fn_rec:.4f} N/m ({rel_fn_rec:.2f}%)")
+    print(f"  Erreur Ft reconstruit : {err_ft_rec:.4f} N/m ({rel_ft_rec:.2f}%)")
+
+
+
     # =================================================================
     # ANALYSE DE LA NORMALISATION PAR PRESSION DYNAMIQUE (OPTION 4)
     # =================================================================
@@ -81,13 +156,12 @@ def main():
     # Calcul du dénominateur physique
     D = compute_dynamic_pressure_D(df)
     
-    # Masque de sécurité pour éviter une éventuelle division par un D trop proche de 0
-    mask_valid = D > 1e-6 
+
     
-    Cn_SVEN = df['Fn_SVEN'].values[mask_valid] / D[mask_valid]
-    Ct_SVEN = df['Ft_SVEN'].values[mask_valid] / D[mask_valid]
+    Cn_SVEN = df['Fn_SVEN'].values / D
+    Ct_SVEN = df['Ft_SVEN'].values / D
     
-    print(f"Nombre de points analysés : {np.sum(mask_valid)} / {len(df)}")
+    print(f"Nombre de points analysés : {len(df)}")
     
     print("\n[Fn_SVEN / D]  =>  (Equivalent Cn)")
     print(f"  Moyenne    : {np.mean(Cn_SVEN):.4f}")
@@ -106,7 +180,7 @@ def main():
     # Vérification du rapport d'échelle
     ratio = np.mean(np.abs(Cn_SVEN)) / np.mean(np.abs(Ct_SVEN))
     print(f"\nRapport d'amplitude absolu (Moy |Cn| / Moy |Ct|) : {ratio:.2f}")
-    print("  -> (Pour rappel, sur les forces brutes Fn/Ft, ce rapport est d'environ 9.0)")
+   
 
 if __name__ == "__main__":
     main()
