@@ -1,16 +1,7 @@
 # Ne garder que slides.tex et loadslides.tex
-slide/*.aux
-slide/*.bcf
-slide/*.fdb_latexmk
-slide/*.fls
-slide/*.log
-slide/*.nav
-slide/*.out
-slide/*.pdf
-slide/*.snm
-slide/*.gz
-slide/*.toc
-slide/*.vrb
+Slides/slide 10_06_26/*
+Slides/slide 12_05_26/*
+Slides/slide 22_05_26/*
 
 # Environnement virtuel
 B2V
@@ -37,3 +28,11 @@ DataSet/Final_DS/*
 pca.py
 test.py
 FatTraining.py
+
+Power_models/debug.py
+Power_models/test_power.py
+Power_models/performance/*
+Power_models/scalers/*
+Power_models/scalers_FBEM/*
+FatTraining/*
+scalers/*
