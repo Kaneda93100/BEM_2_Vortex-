@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 import torch
 import pickle
 from sklearn.preprocessing import StandardScaler
+from core.config import RHO, U_INFTY, PITCH_RAD, R_ROTOR, OMEGA
 
 def load_clean_data(path_forces="data/raw/fichier_forces.csv", path_vitesses="data/raw/fichier_vitesses.csv"):
     df_f = pd.read_csv(path_forces)
@@ -38,7 +39,7 @@ def get_D_tensor(df, entree, device='cpu'):
     if 'TSR' not in df_calc.columns: 
         df_calc['TSR'] = 8.0
         
-    df_calc['D'] = compute_dynamic_pressure_D(df_calc).clip(lower=1e-6)
+    df_calc['D'] = compute_dynamic_pressure_D(df_calc)
     
     D_list = []
     grouped = df_calc.groupby(['yaw', 'TSR'])
@@ -46,7 +47,6 @@ def get_D_tensor(df, entree, device='cpu'):
     if entree == 'GV':
         for _, group in grouped:
             group = group.sort_values(['theta', 'r'])
-            # Y a deux valeurs (Fn, Ft) par noeud, on duplique donc D pour correspondre
             D_flat = np.repeat(group['D'].values, 2)
             D_list.append(D_flat)
             
@@ -61,24 +61,71 @@ def get_D_tensor(df, entree, device='cpu'):
             
     return torch.tensor(np.array(D_list), dtype=torch.float32, device=device)
 
-def format_data(df, entree, res, inter, is_train, device='cpu'):
+def get_V_app_tensor(df, entree, device='cpu'):
+    """ Calcule et formate la vitesse apparente V_app pour l'évaluation """
+    from core.physics import compute_V_app
+    df_calc = df.copy()
+    
+    df_calc['V_app'] = compute_V_app(df_calc)
+    
+    V_app_list = []
+    grouped = df_calc.groupby(['yaw', 'TSR'])
+    
+    if entree == 'GV':
+        for _, group in grouped:
+            group = group.sort_values(['theta', 'r'])
+            V_flat = group['V_app'].values 
+            V_app_list.append(V_flat)
+    elif entree == 'GM':
+        r_uniques = np.sort(df_calc['r'].unique())
+        theta_uniques = np.sort(df_calc['theta'].unique())
+        for _, group in grouped:
+            group = group.sort_values(['r', 'theta'])
+            v_val = group['V_app'].values.reshape(len(r_uniques), len(theta_uniques))
+            V_app_list.append(v_val)
+            
+    return torch.tensor(np.array(V_app_list), dtype=torch.float32, device=device)
+
+def format_data(df, entree, res, inter, is_train, device='cpu', omega=OMEGA, R_rotor=R_ROTOR):
     res_str = str(res)
     df_work = df.copy()
     if 'TSR' not in df_work.columns:
         df_work['TSR'] = 8.0
     
+    # =========================================================================
+    # NORMALISATION PHYSIQUE DES CIBLES (INTERMÉDIAIRES 'f' ou 'v')
+    # =========================================================================
     if inter == 'f': 
         from core.physics import compute_dynamic_pressure_D
-        D = compute_dynamic_pressure_D(df_work).clip(lower=1e-6)
+        D = compute_dynamic_pressure_D(df_work)
         cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
         
+        # Passage aux coefficients adimensionnels Fn/D et Ft/D
         for col in cols_sven + cols_bem:
             df_work[col] = df_work[col] / D
             
     elif inter == 'v': 
-        cols_sven, cols_bem = ['V_eff_SVEN', 'alpha_SVEN'], ['V_eff_BEM', 'alpha_BEM']
+        from core.physics import compute_V_app
+        
+        # On récupère V_app
+        V_app = compute_V_app(df_work)
+        
+        # Transformation SVEN : Polaire -> Cartésien
+        alpha_sven_rad = np.radians(df_work['alpha_SVEN'].values)
+        df_work['an_SVEN'] = np.sin(alpha_sven_rad) * df_work['V_eff_SVEN'].values / V_app
+        df_work['at_SVEN'] = np.cos(alpha_sven_rad) * df_work['V_eff_SVEN'].values / V_app
+        
+        # Transformation BEM : Polaire -> Cartésien
+        alpha_bem_rad = np.radians(df_work['alpha_BEM'].values)
+        df_work['an_BEM'] = np.sin(alpha_bem_rad) * df_work['V_eff_BEM'].values / V_app
+        df_work['at_BEM'] = np.cos(alpha_bem_rad) * df_work['V_eff_BEM'].values / V_app
+        
+        cols_sven = ['an_SVEN', 'at_SVEN']
+        cols_bem = ['an_BEM', 'at_BEM']
 
-    # --- Stratégie GV ---
+    # =========================================================================
+    # MISE EN FORME DES AXES POUR LES STRATÉGIES 'GV' OU 'GM'
+    # =========================================================================
     if entree == 'GV': 
         grouped = df_work.groupby(['yaw', 'TSR'])
         X_list, Y_list = [], []
@@ -91,7 +138,10 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
             if res_str == '1':
                 Y_val = y_sven - y_bem
                 X_val = np.concatenate(([y_val, tsr_val], y_bem)) 
-            else:
+            elif res_str == '2': #Entrées BEM completes mais cibles SVEN pures
+                Y_val = y_sven
+                X_val = np.concatenate(([y_val, tsr_val], y_bem))
+            else: # '0'
                 Y_val = y_sven
                 X_val = np.array([y_val, tsr_val])
                 
@@ -99,7 +149,6 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
             Y_list.append(Y_val)
         X_np, Y_np = np.array(X_list), np.array(Y_list)
 
-    # --- Stratégie GM ---
     elif entree == 'GM':
         grouped = df_work.groupby(['yaw', 'TSR'])
         X_list, Y_list = [], []
@@ -119,7 +168,10 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
             if res_str == '1':
                 Y_val = y_sven - y_bem
                 X_val = np.stack([y_bem[0], y_bem[1], yaw_channel, tsr_channel])
-            else:
+            elif res_str == '2': # Image BEM complète en entrée, cible SVEN pure
+                Y_val = y_sven
+                X_val = np.stack([y_bem[0], y_bem[1], yaw_channel, tsr_channel])
+            else: # '0'
                 Y_val = y_sven
                 R_grid, Theta_grid = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
                 X_val = np.stack([yaw_channel, tsr_channel, R_grid, Theta_grid])
@@ -132,9 +184,9 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
     else:
         raise ValueError(f"Stratégie '{entree}' non reconnue. Utilisez 'GV' ou 'GM'.")
 
-    # ==========================================
-    # NORMALISATION (SCALING)
-    # ==========================================
+    # =========================================================================
+    # NORMALISATION STATISTIQUE (STANDARD SCALER POUR X ET POUR Y)
+    # =========================================================================
     model_name = f"{entree}_{res_str}_{inter}"
     os.makedirs("training/scalers", exist_ok=True)
     path_x = f"training/scalers/scaler_X_{model_name}.pkl"
@@ -148,31 +200,26 @@ def format_data(df, entree, res, inter, is_train, device='cpu'):
         Y_np = Y_np.reshape(Y_np.shape[0], -1)
 
     if is_train:
+        # Scaler pour X
         scaler_X = StandardScaler()
         X_scaled = scaler_X.fit_transform(X_np)
         with open(path_x, 'wb') as f: 
             pickle.dump(scaler_X, f)
         
-
-        if inter == 'v':
-            scaler_Y = StandardScaler()
-            Y_scaled = scaler_Y.fit_transform(Y_np)
-            with open(path_y, 'wb') as f: 
-                pickle.dump(scaler_Y, f)
-        else:
-            Y_scaled = Y_np
+        # Scaler pour Y (strat 'f' et strat 'v')
+        scaler_Y = StandardScaler()
+        Y_scaled = scaler_Y.fit_transform(Y_np)
+        with open(path_y, 'wb') as f: 
+            pickle.dump(scaler_Y, f)
             
     else:
         with open(path_x, 'rb') as f: 
             scaler_X = pickle.load(f)
         X_scaled = scaler_X.transform(X_np)
         
-        if inter == 'v':
-            with open(path_y, 'rb') as f: 
-                scaler_Y = pickle.load(f)
-            Y_scaled = scaler_Y.transform(Y_np)
-        else:
-            Y_scaled = Y_np    
+        with open(path_y, 'rb') as f: 
+            scaler_Y = pickle.load(f)
+        Y_scaled = scaler_Y.transform(Y_np)
 
     if entree == 'GM':
         X_scaled = X_scaled.reshape(original_shape_X)

@@ -7,11 +7,11 @@ import torch.nn as nn
 import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
-from sklearn.model_selection import KFold
 from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
-from training.src.data_loader import format_data, get_D_tensor
-from core.physics import convert_v_to_f, get_geometry
-from tqdm import tqdm
+from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor
+from training.src.trainer import fit_model, cross_validate
+from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D
+from core.config import EPOCHS_FINAL, CV_SPLITS, LAMBDA_INGENIEUR
 
 def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
     """ Réaligne les prédictions (déjà décodées et en dimensions physiques) selon la topologie d'origine. """
@@ -20,8 +20,8 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
         c1, c2 = 'Fn', 'Ft'
         c1_bem, c2_bem = 'Fn_BEM', 'Ft_BEM'
     elif inter == 'v':
-        c1, c2 = 'V_eff', 'alpha'
-        c1_bem, c2_bem = 'V_eff_BEM', 'alpha_BEM'
+        c1, c2 = 'an', 'at'
+        c1_bem, c2_bem = 'an_BEM', 'at_BEM'
         
     records = []
     for i, (y_val, group) in enumerate(df_test.groupby('yaw')):
@@ -40,9 +40,10 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
             if res_str == '1':
                 v1 += row[c1_bem]
                 v2 += row[c2_bem]
+                
             records.append({
                 'r': row['r'], 'theta': row['theta'], 'yaw': row['yaw'], 
-                f'{c1}_pred': v1, f'{c2}_pred': v2,
+                f'{c1}_pred': v1, f'{c2}_pred': v2, 
                 'Fn_SVEN': row['Fn_SVEN'], 'Ft_SVEN': row['Ft_SVEN']
             })
                 
@@ -51,8 +52,7 @@ def reconstruct_predictions(df_test, preds, entree, residuelle, inter):
 
 def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     V_BEM_phys_train = None
-    V_BEM_phys_test = None
-    
+    V_app_full_train = None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     base_model_name = f"{entree}_{residuelle}_{inter}"
     saved_name = f"{base_model_name}_{suffixe}"
@@ -60,7 +60,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     is_cnn = (entree == 'GM')
     
     print(f"\n{'='*50}")
-    print(f" ÉVALUATION EXHAUSTIVE (3 Folds CV | Fixe 1000 Epochs) : {saved_name}")
+    print(f" ÉVALUATION EXHAUSTIVE ({CV_SPLITS} Folds CV | Fixe {EPOCHS_FINAL} Epochs) : {saved_name}")
     print(f"{'='*50}")
     
     hp_path = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
@@ -73,34 +73,33 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=False, device=device)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
 
-    # =========================================================================
-    # INITIALISATION : SCALERS & RÉFÉRENCES PHYSIQUES
-    # =========================================================================
-    if inter == 'v':
-        _, Y_f_abs_tr = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
-        _, Y_f_abs_te = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
-        with open(f"training/scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f: scaler_f_abs = pickle.load(f)
-        scaler_f_abs_torch = TorchScaler(scaler_f_abs, device)
-        
-        F_SVEN_phys_train_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_tr)
-        F_SVEN_phys_test_abs = scaler_f_abs_torch.inverse_transform(Y_f_abs_te)
+    # Charger le scaler global 
+    with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: 
+        scaler_Y = pickle.load(f)
+    scaler_Y_torch = TorchScaler(scaler_Y, device)
 
-        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_v.pkl", 'rb') as f: scaler_v = pickle.load(f)
+    # =========================================================================
+    # INITIALISATION DES RÉFÉRENCES PHYSIQUES POUR LA CV
+    # =========================================================================
+    global_mean_fn = df_train['Fn_SVEN'].abs().mean()
+    global_mean_ft = df_train['Ft_SVEN'].abs().mean()
+
+    if inter == 'v':
+        _, _ = format_data(df_train, entree, residuelle, 'f', is_train=True, device=device)
         with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f: scaler_f = pickle.load(f)
         
-        scaler_v_torch = TorchScaler(scaler_v, device)
-        scaler_f_torch = TorchScaler(scaler_f, device)
-        
         polar_surrogate = PolarSurrogate(device=device).to(device)
+        V_app_full_train = get_V_app_tensor(df_train, entree, device)
+        D_train_full = None
 
         geom = get_geometry()
         if is_cnn:
             r_uniques = np.sort(df_train['r'].unique())
             theta_uniques = np.sort(df_train['theta'].unique())
             R_grid, _ = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
+            r_tensor = torch.tensor(R_grid, dtype=torch.float32, device=device)
             c_grid = np.array([geom.get_chord(r) for r in r_uniques])
             C_grid, _ = np.meshgrid(c_grid, theta_uniques, indexing='ij')
-            r_tensor = torch.tensor(R_grid, dtype=torch.float32, device=device)
             c_tensor = torch.tensor(C_grid, dtype=torch.float32, device=device)
         else:
             group = df_train[(df_train['yaw'] == df_train['yaw'].iloc[0])]
@@ -110,55 +109,28 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
             r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
             c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
 
-        if str(residuelle) == '1':
-            _, Y_train_abs_v = format_data(df_train, entree, '0', inter, is_train=False, device=device)
-            _, Y_test_abs_v = format_data(df_test, entree, '0', inter, is_train=False, device=device)
-            with open(f"training/scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs_v: scaler_v_abs = pickle.load(f_abs_v)
-            scaler_v_abs_torch = TorchScaler(scaler_v_abs, device)
+        if str(residuelle) in ['1', '2']:
+            _, Y_full_abs_scaled = format_data(df_train, entree, '0', inter, is_train=False, device=device)
+            with open(f"training/scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: scaler_v_abs = pickle.load(f_abs)
             
-            V_SVEN_phys_tr = scaler_v_abs_torch.inverse_transform(Y_train_abs_v)
-            Delta_V_phys_tr = scaler_v_torch.inverse_transform(Y_train)
-            V_BEM_phys_train = V_SVEN_phys_tr - Delta_V_phys_tr
-            
-            V_SVEN_phys_te = scaler_v_abs_torch.inverse_transform(Y_test_abs_v)
-            Delta_V_phys_te = scaler_v_torch.inverse_transform(Y_test)
-            V_BEM_phys_test = V_SVEN_phys_te - Delta_V_phys_te
-            
-        F_TARGET_phys_train = F_SVEN_phys_train_abs 
-        F_TARGET_phys_test = F_SVEN_phys_test_abs
-        
+            an_at_sven = TorchScaler(scaler_v_abs, device).inverse_transform(Y_full_abs_scaled)
+            an_at_delta = scaler_Y_torch.inverse_transform(Y_train)
+            V_BEM_phys_train = an_at_sven - an_at_delta
     else:
-
         D_train_full = get_D_tensor(df_train, entree, device)
         D_test_full = get_D_tensor(df_test, entree, device)
-        
-        # On récupère les forces absolues de SVEN normalisées (résiduelle=0)
-        _, Y_train_abs_norm = format_data(df_train, entree, '0', 'f', is_train=False, device=device)
-        _, Y_test_abs_norm = format_data(df_test, entree, '0', 'f', is_train=False, device=device)
-        
-        # Multiplication par D pour avoir les vraies forces absolues SVEN en N/m
-        F_SVEN_phys_train_abs = Y_train_abs_norm * D_train_full
-        F_SVEN_phys_test_abs = Y_test_abs_norm * D_test_full
-        
-        # Y_train et Y_test contiennent les cibles du modèle (Soit Fn/D, soit delta_Fn/D)
-        # On multiplie par D pour avoir les forces cibles à reconstruire en N/m
-        F_TARGET_phys_train = Y_train * D_train_full
-        F_TARGET_phys_test = Y_test * D_test_full
 
+    # --- CHARGEMENT DE L'AUTO-ENCODEUR ---
     use_ae = best_params.get('use_autoencoder', False) and suffixe != 'D0'
-    Y_train_target = Y_train
-    
     if use_ae:
         latent_dim = best_params['latent_dim']
         ae_configs = json.load(open("training/hyperparametres/ae_hyperparameters.json", "r"))
         ae_config = ae_configs[saved_name]
-            
         if entree == 'GM':
             current_ae = ConvolutionalAutoencoder(in_channels=Y_train.shape[1], latent_dim=latent_dim, 
-                                            depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device)
+                                                  depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device)
         else:
             current_ae = LinearAutoencoder(in_features=Y_train.shape[1], latent_dim=latent_dim, device=device).to(device)
-            
         current_ae.load_state_dict(torch.load(f"training/models/ae/ae_{saved_name}.pth", map_location=device))
         current_ae.eval()
     else:
@@ -167,148 +139,79 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
 
     target_dim = latent_dim if use_ae else Y_train.shape[1]
 
-    # Définition de la fonction de perte
-    if inter == 'v':
-        criterion = PhysicsInformedLoss(current_ae, scaler_v, scaler_f, 0.5, r_tensor, c_tensor, polar_surrogate, device)
-    else:
-        # Pour 'f', la DecoderLoss effectue simplement une MSE sur l'espace normalisé !
-        criterion = DecoderLoss(current_ae)
-
-    def compute_metrics(model, X_eval, target_phys_eval, abs_sven_phys_eval, v_bem_phys_eval=None, D_eval=None):
-        with torch.no_grad():
-            preds_norm = current_ae.decode(model(X_eval)) if use_ae else model(X_eval)
-            
-            if inter == 'v':
-                v_pred_phys = scaler_v_torch.inverse_transform(preds_norm)
-                if v_bem_phys_eval is not None: v_pred_phys = v_pred_phys + v_bem_phys_eval
-
-                if is_cnn:
-                    v_eff_p, alpha_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
-                else:
-                    v_eff_p, alpha_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
-                    
-                f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p, r_tensor, c_tensor, polar_surrogate)
-                
-                if is_cnn:
-                    f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
-                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                    Fn_t_abs, Ft_t_abs = abs_sven_phys_eval[:, 0], abs_sven_phys_eval[:, 1]
-                else:
-                    Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                    Fn_t_abs, Ft_t_abs = abs_sven_phys_eval[:, 0::2], abs_sven_phys_eval[:, 1::2]
-                    
-                rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t_abs)**2))
-                rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t_abs)**2))
-                mean_fn_eval = torch.mean(torch.abs(Fn_t_abs))
-                mean_ft_eval = torch.mean(torch.abs(Ft_t_abs))
-            else:
-                # Retour à la physique pour le calcul des scores N/m
-                f_pred_phys = preds_norm * D_eval
-                
-                if is_cnn:
-                    Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                    Fn_t_target, Ft_t_target = target_phys_eval[:, 0], target_phys_eval[:, 1]
-                    Fn_t_abs, Ft_t_abs = abs_sven_phys_eval[:, 0], abs_sven_phys_eval[:, 1]
-                else:
-                    Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
-                    Fn_t_target, Ft_t_target = target_phys_eval[:, 0::2], target_phys_eval[:, 1::2]
-                    Fn_t_abs, Ft_t_abs = abs_sven_phys_eval[:, 0::2], abs_sven_phys_eval[:, 1::2]
-                    
-                rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t_target)**2))
-                rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t_target)**2))
-                mean_fn_eval = torch.mean(torch.abs(Fn_t_abs))
-                mean_ft_eval = torch.mean(torch.abs(Ft_t_abs))
-            
-            rel_fn = (rmse_fn / mean_fn_eval * 100) if mean_fn_eval > 0 else 0
-            rel_ft = (rmse_ft / mean_ft_eval * 100) if mean_ft_eval > 0 else 0
-            
-            return (rel_fn + rel_ft).item()
-
-    # =========================================================================
-    # PHASE 1 : VALIDATION CROISÉE SUR 3 FOLDS (1000 ÉPOQUES)
-    # =========================================================================
-    print("\n   [1/2] Lancement de la Cross-Validation (3 Folds x 1000 époques)...")
-    n_splits = 3
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    
-    cv_scores = np.zeros(n_splits)
-    
-    for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())):
-        X_tr_cv, Y_tr_cv = X_train[train_idx], Y_train_target[train_idx]
-        X_val_cv = X_train[val_idx]
-        
-        v_bem_tr_cv = V_BEM_phys_train[train_idx] if V_BEM_phys_train is not None else None
-        v_bem_val_cv = V_BEM_phys_train[val_idx] if V_BEM_phys_train is not None else None
-        
-        if entree == 'GV':
-            model_cv = TurbineMLP(X_train.shape[1], target_dim, best_params['n_layers'], best_params['n_neurons'], best_params['dropout_rate'], device=device).to(device)
-        elif entree == 'GM':
-            model_cv = TurbineCNN(in_channels=X_train.shape[1], out_channels=target_dim, use_autoencoder=use_ae, latent_dim=latent_dim,
-                               n_layers=best_params['n_layers'], base_filters=best_params['base_filters'], dropout_rate=best_params['dropout_rate'], device=device).to(device)
-        
-        optimizer_cv = torch.optim.Adam(model_cv.parameters(), lr=best_params['lr'])
-        
-        pbar_cv = tqdm(range(1000), desc=f"   -> Fold {fold+1}/{n_splits}", leave=False)
-        for epoch in pbar_cv:
-            model_cv.train()
-            optimizer_cv.zero_grad()
-            
-            if inter == 'v' and V_BEM_phys_train is not None:
-                loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv, v_bem_phys=v_bem_tr_cv)
-            else:
-                loss_cv = criterion(model_cv(X_tr_cv), Y_tr_cv)
-                
-            loss_cv.backward()
-            optimizer_cv.step()
-            
-        # Évaluation finale du fold après 1000 epochs (avec passage de D_eval pour inter f)
-        model_cv.eval()
-        d_eval_cv = D_train_full[val_idx] if inter == 'f' else None
-        score_val = compute_metrics(model_cv, X_val_cv, F_TARGET_phys_train[val_idx], F_SVEN_phys_train_abs[val_idx], v_bem_val_cv, D_eval=d_eval_cv)
-        cv_scores[fold] = score_val
-
-    # --- Calcul de la CV à 1000 Epochs ---
-    mean_cv_1000 = cv_scores.mean()
-    std_cv_1000 = cv_scores.std()
-
-    # =========================================================================
-    # PHASE 2 : ENTRAÎNEMENT DU MODÈLE FINAL SUR 1000 EPOCHS
-    # =========================================================================
-    print(f"\n   [2/2] Entraînement complet du Modèle Final (100% Data) sur 1000 époques...")
-    if entree == 'GV':
-        model_final = TurbineMLP(X_train.shape[1], target_dim, best_params['n_layers'], best_params['n_neurons'], best_params['dropout_rate'], device=device).to(device)
-    elif entree == 'GM':
-        model_final = TurbineCNN(in_channels=X_train.shape[1], out_channels=target_dim, use_autoencoder=use_ae, latent_dim=latent_dim,
-                           n_layers=best_params['n_layers'], base_filters=best_params['base_filters'], dropout_rate=best_params['dropout_rate'], device=device).to(device)
-
-    optimizer_final = torch.optim.Adam(model_final.parameters(), lr=best_params['lr'])
-    best_train_loss = float('inf')
-    best_model_weights = None
-    
-    pbar = tqdm(range(1000), desc=f"   Training Final")
-    for epoch in pbar:
-        model_final.train()
-        optimizer_final.zero_grad()
-        if inter == 'v' and V_BEM_phys_train is not None:
-            loss = criterion(model_final(X_train), Y_train_target, v_bem_phys=V_BEM_phys_train)
+    def criterion_builder(train_idx=None, val_idx=None):
+        if inter == 'v':
+            v_train = V_app_full_train[train_idx] if train_idx is not None else V_app_full_train
+            v_val = V_app_full_train[val_idx] if val_idx is not None else V_app_full_train
+            return PhysicsInformedLoss(current_ae, scaler_Y, scaler_f, LAMBDA_INGENIEUR, r_tensor, c_tensor, polar_surrogate, device, v_app_train=v_train, v_app_val=v_val)
         else:
-            loss = criterion(model_final(X_train), Y_train_target)
-        loss.backward()
-        optimizer_final.step()
+            return DecoderLoss(current_ae)
+
+    def compute_phys_score(model, X_val, Y_val, val_idx, preds_val):
+        """ Calculateur de score physique injecté pour la Cross-Validation """
+        preds_norm = current_ae.decode(preds_val) if use_ae else preds_val
+        coeffs_pred = scaler_Y_torch.inverse_transform(preds_norm)
+        coeffs_true = scaler_Y_torch.inverse_transform(Y_val)
         
-        current_loss = loss.item()
-        
-        if current_loss < best_train_loss:
-            best_train_loss = current_loss
-            best_model_weights = copy.deepcopy(model_final.state_dict())
-             
-        if (epoch + 1) % 50 == 0: pbar.set_postfix({"Loss": f"{current_loss:.6f}"})
+        if inter == 'v':
+            v_bem_val = V_BEM_phys_train[val_idx] if V_BEM_phys_train is not None else None
+            if v_bem_val is not None:
+                coeffs_pred += v_bem_val
+                coeffs_true += v_bem_val
+            an_p, at_p = (coeffs_pred[:, 0], coeffs_pred[:, 1]) if is_cnn else (coeffs_pred[:, 0::2], coeffs_pred[:, 1::2])
+            an_t, at_t = (coeffs_true[:, 0], coeffs_true[:, 1]) if is_cnn else (coeffs_true[:, 0::2], coeffs_true[:, 1::2])
             
-    if best_model_weights is not None:
-        model_final.load_state_dict(best_model_weights)
+            alpha_p_deg = torch.atan2(an_p, at_p) * (180.0 / torch.pi)
+            alpha_t_deg = torch.atan2(an_t, at_t) * (180.0 / torch.pi)
+            v_eff_p = V_app_full_train[val_idx] * torch.sqrt(an_p**2 + at_p**2)
+            v_eff_t = V_app_full_train[val_idx] * torch.sqrt(an_t**2 + at_t**2)
+            
+            f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p_deg, r_tensor, c_tensor, polar_surrogate)
+            f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t_deg, r_tensor, c_tensor, polar_surrogate)
+            Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
+            Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+        else:
+            D_val = D_train_full[val_idx]
+            f_pred_phys = coeffs_pred * D_val
+            f_true_phys = coeffs_true * D_val
+            Fn_p, Ft_p = (f_pred_phys[:, 0], f_pred_phys[:, 1]) if is_cnn else (f_pred_phys[:, 0::2], f_pred_phys[:, 1::2])
+            Fn_t, Ft_t = (f_true_phys[:, 0], f_true_phys[:, 1]) if is_cnn else (f_true_phys[:, 0::2], f_true_phys[:, 1::2])
+
+        rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
+        rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
+        return ((rmse_fn / global_mean_fn * 100) + (rmse_ft / global_mean_ft * 100)).item()
 
     # =========================================================================
-    # PHASE 3 : CALCULS FINAUX SUR LE JEU DE TEST
+    # PHASE 1 : VALIDATION CROISÉE SUR CV_SPLITS FOLDS
+    # =========================================================================
+    print(f"\n   [1/2] Lancement de la Cross-Validation ({CV_SPLITS} Folds)...")
+    if entree == 'GV':
+        model_class = TurbineMLP
+        model_kwargs = {'input_dim': X_train.shape[1], 'output_dim': target_dim, 'n_layers': best_params['n_layers'], 'n_neurons': best_params['n_neurons'], 'dropout_rate': best_params['dropout_rate'], 'device': device}
+    else:
+        model_class = TurbineCNN
+        model_kwargs = {'in_channels': X_train.shape[1], 'out_channels': target_dim, 'use_autoencoder': use_ae, 'latent_dim': latent_dim, 'n_layers': best_params['n_layers'], 'base_filters': best_params['base_filters'], 'dropout_rate': best_params['dropout_rate'], 'device': device}
+
+    _, mean_cv_1000, std_cv_1000 = cross_validate(
+        X_full=X_train, Y_full=Y_train, model_class=model_class, model_kwargs=model_kwargs,
+        criterion_builder=criterion_builder, epochs=EPOCHS_FINAL, lr=best_params['lr'],
+        n_splits=CV_SPLITS, device=device, inter=inter, v_bem_phys_full=V_BEM_phys_train,
+        compute_metrics_fn=compute_phys_score
+    )
+
+    # =========================================================================
+    # PHASE 2 : ENTRAÎNEMENT DU MODÈLE FINAL
+    # =========================================================================
+    print(f"\n   [2/2] Entraînement complet du Modèle Final sur {EPOCHS_FINAL} époques...")
+    model_final = model_class(**model_kwargs).to(device)
+    model_final, _ = fit_model(
+        model=model_final, X=X_train, Y=Y_train, criterion=criterion_builder(None,None), 
+        epochs=EPOCHS_FINAL, lr=best_params['lr'], device=device, inter=inter,
+        v_bem_phys=V_BEM_phys_train, show_progress=True
+    )
+
+    # =========================================================================
+    # PHASE 3 : TEST & CALCULS FINAUX
     # =========================================================================
     model_final.eval()
     with torch.no_grad(): 
@@ -316,39 +219,45 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
         preds_norm_out = current_ae.decode(preds_raw) if use_ae else preds_raw
 
     preds_norm_np = preds_norm_out.cpu().numpy()
-    preds_flat = preds_norm_np.reshape(preds_norm_np.shape[0], -1) if entree == 'GM' else preds_norm_np
-
-    rmse_fn_norm, rmse_ft_norm = None, None
+    preds_flat = preds_norm_np.reshape(preds_norm_np.shape[0], -1) if is_cnn else preds_norm_np
+    preds_coeffs = scaler_Y.inverse_transform(preds_flat)
 
     if inter == 'v':
-        with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f: scaler_Y = pickle.load(f)
-        preds_denorm = scaler_Y.inverse_transform(preds_flat)
-    else:
-        # --- CALCUL DES MÉTRIQUES NORMALISÉES (SANS UNITÉ) ---
-        Y_test_np = Y_test.cpu().numpy()
-        if entree == 'GM':
-            Fn_norm_p, Ft_norm_p = preds_norm_np[:, 0], preds_norm_np[:, 1]
-            Fn_norm_t, Ft_norm_t = Y_test_np[:, 0], Y_test_np[:, 1]
-        else:
-            Fn_norm_p, Ft_norm_p = preds_norm_np[:, 0::2], preds_norm_np[:, 1::2]
-            Fn_norm_t, Ft_norm_t = Y_test_np[:, 0::2], Y_test_np[:, 1::2]
-            
-        rmse_fn_norm = np.sqrt(np.mean((Fn_norm_p - Fn_norm_t)**2))
-        rmse_ft_norm = np.sqrt(np.mean((Ft_norm_p - Ft_norm_t)**2))
+        from core.physics import compute_V_app
+        df_test_calc = df_test.copy()
         
-        # --- DÉNORMALISATION PHYSIQUE (Multiplication par D) ---
-        D_test_np = D_test_full.cpu().numpy()
-        D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1) if entree == 'GM' else D_test_np
-        preds_denorm = preds_flat * D_test_flat 
+        V_app_test_init = compute_V_app(df_test_calc)
+        alpha_bem_rad = np.radians(df_test_calc['alpha_BEM'].values)
+        
+        df_test_calc['an_BEM'] = np.sin(alpha_bem_rad) * df_test_calc['V_eff_BEM'].values / V_app_test_init
+        df_test_calc['at_BEM'] = np.cos(alpha_bem_rad) * df_test_calc['V_eff_BEM'].values / V_app_test_init
 
-    df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
-    
-    if inter == 'v':
+        df_res = reconstruct_predictions(df_test_calc, preds_coeffs, entree, residuelle, inter)
+        
+        V_app_test = compute_V_app(df_res)
+        
+        an_p, at_p = df_res['an_pred'].values, df_res['at_pred'].values
+        
+        # Inversion trigonométrique différentiable vers l'espace polaire
+        alpha_p_deg = np.arctan2(an_p, at_p) * (180.0 / np.pi)
+        v_eff_p = V_app_test * np.sqrt(an_p**2 + at_p**2)
+        
+        df_res['V_eff_pred'] = v_eff_p
+        df_res['alpha_pred'] = alpha_p_deg
+        
+        # Calcul final des forces physiques en N/m
         df_res['Fn_pred'], df_res['Ft_pred'] = convert_v_to_f(df_res['V_eff_pred'].values, df_res['alpha_pred'].values, df_res['r'].values)
     
+    else:
+        D_test_np = D_test_full.cpu().numpy()
+        D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1) if is_cnn else D_test_np
+        preds_denorm = preds_coeffs * D_test_flat
+        df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
+
     Fn_s, Ft_s = df_res['Fn_SVEN'].values, df_res['Ft_SVEN'].values
     Fn_p, Ft_p = df_res['Fn_pred'].values, df_res['Ft_pred'].values
     
+    # 1. Métriques Physiques (N/m)
     rmse_fn = np.sqrt(np.mean((Fn_p - Fn_s)**2))
     rmse_ft = np.sqrt(np.mean((Ft_p - Ft_s)**2))
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
@@ -356,30 +265,36 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     score_total_test = rel_fn + rel_ft
     wd_score = wasserstein_distance(Fn_s, Fn_p) + wasserstein_distance(Ft_s, Ft_p)
     
-    # Construction du dictionnaire de résultats
+    # 2. Métriques Normalisées sans unité (Fn/D et Ft/D)
+    D_res = compute_dynamic_pressure_D(df_res)
+    Fn_s_norm, Ft_s_norm = Fn_s / D_res, Ft_s / D_res
+    Fn_p_norm, Ft_p_norm = Fn_p / D_res, Ft_p / D_res
+    
+    rmse_fn_norm = np.sqrt(np.mean((Fn_p_norm - Fn_s_norm)**2))
+    rmse_ft_norm = np.sqrt(np.mean((Ft_p_norm - Ft_s_norm)**2))
+    rel_fn_norm = (rmse_fn_norm / np.mean(np.abs(Fn_s_norm))) * 100 if np.mean(np.abs(Fn_s_norm)) != 0 else 0
+    rel_ft_norm = (rmse_ft_norm / np.mean(np.abs(Ft_s_norm))) * 100 if np.mean(np.abs(Ft_s_norm)) != 0 else 0
+    score_total_bis = rel_fn_norm + rel_ft_norm
+
+    # Dictionnaire Recap global CSV
     results_detail = {
         "Modele": saved_name, "Strat_Entree": entree, "Residuelle": residuelle, "Intermediaire": inter, "Suffixe": suffixe,
-        "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4)
-    }
-    
-    if inter == 'f':
-        results_detail["RMSE_Fn_norm"] = round(rmse_fn_norm, 4)
-        results_detail["RMSE_Ft_norm"] = round(rmse_ft_norm, 4)
-        
-    results_detail.update({
+        "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4),
+        "RMSE_Fn_norm": round(rmse_fn_norm, 4), "RMSE_Ft_norm": round(rmse_ft_norm, 4),
         "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
+        "Rel_Fn_norm (%)": round(rel_fn_norm, 2), "Rel_Ft_norm (%)": round(rel_ft_norm, 2),
         "Total_Score_Test (%)": round(score_total_test, 2),
+        "Total_Score_Test_Bis (%)": round(score_total_bis, 2),
         "Total_Score_CV_150 (%)": round(best_params.get("Total_Score_CV", -1.0), 2),
         "Total_Score_CV2_1000 (%)": round(mean_cv_1000, 2), 
         "CV2_Variance (%)": round(std_cv_1000, 2),
         "Wasserstein_Dist": round(wd_score, 4)
-    })
+    }
     
     os.makedirs("training/performance", exist_ok=True)
     if os.path.exists(recap_path):
         df_recap = pd.read_csv(recap_path)
         df_recap = df_recap[df_recap["Modele"] != saved_name]
-        # Suppression des colonnes obsolètes si elles sont présentes
         cols_to_drop = ["Total_Score_CV2_Best_Epoch", "Total_Score_CV2_Best_1.5Epoch", "Best_Epoch"]
         df_recap = df_recap.drop(columns=[c for c in cols_to_drop if c in df_recap.columns])
         df_recap = pd.concat([df_recap, pd.DataFrame([results_detail])], ignore_index=True)
@@ -389,15 +304,12 @@ def evaluator(df_train, df_test, entree, residuelle, inter, suffixe):
     df_recap.to_csv(recap_path, index=False)
     
     print(f"   [RÉSUMÉ DES SCORES PHYSIQUES]")
-    print(f"   -> Optuna CV (150 ep.) : {best_params.get('Total_Score_CV', -1.0):.2f}%")
-    print(f"   -> Final CV  (1000 ep.): {mean_cv_1000:.2f}% (Var: {std_cv_1000:.2f}%)")
-    print(f"   -> Final Test(1000 ep.): {score_total_test:.2f}%")
+    print(f"   -> Final Test Absolu (1000 ep.): {score_total_test:.2f}%")
+    print(f"   -> Final Test Bis Normalisé   : {score_total_bis:.2f}% (Fn_norm: {rel_fn_norm:.2f}%, Ft_norm: {rel_ft_norm:.2f}%)")
 
     if score_total_test < 16.0:
         os.makedirs(f"training/models/{entree}", exist_ok=True)
-        model_save_path = f"training/models/{entree}/model_{saved_name}.pth"
-        torch.save(model_final.state_dict(), model_save_path)
-        print(f"   [SAUVEGARDE] Performance excellente (<16%). Modèle enregistré dans {model_save_path}")
+        torch.save(model_final.state_dict(), f"training/models/{entree}/model_{saved_name}.pth")
 
 def evaluate_baselines(df_test):
     print("\n--- Initialisation de la Baseline ---")
@@ -406,22 +318,31 @@ def evaluate_baselines(df_test):
 
     rmse_fn = np.sqrt(np.mean((Fn_b - Fn_s)**2))
     rmse_ft = np.sqrt(np.mean((Ft_b - Ft_s)**2))
-    
     rel_fn = (rmse_fn / np.mean(np.abs(Fn_s))) * 100 if np.mean(np.abs(Fn_s)) != 0 else 0
     rel_ft = (rmse_ft / np.mean(np.abs(Ft_s))) * 100 if np.mean(np.abs(Ft_s)) != 0 else 0
     score_total = rel_fn + rel_ft
-    
     wd_score_baseline = wasserstein_distance(Fn_s, Fn_b) + wasserstein_distance(Ft_s, Ft_b)
+
+    # Calcul exact de la Baseline Bis Normalisée (sans unité)
+    D = compute_dynamic_pressure_D(df_test)
+    Fn_s_norm, Ft_s_norm = Fn_s / D, Ft_s / D
+    Fn_b_norm, Ft_b_norm = Fn_b / D, Ft_b / D
+    
+    rmse_fn_norm = np.sqrt(np.mean((Fn_b_norm - Fn_s_norm)**2))
+    rmse_ft_norm = np.sqrt(np.mean((Ft_b_norm - Ft_s_norm)**2))
+    rel_fn_norm = (rmse_fn_norm / np.mean(np.abs(Fn_s_norm))) * 100 if np.mean(np.abs(Fn_s_norm)) != 0 else 0
+    rel_ft_norm = (rmse_ft_norm / np.mean(np.abs(Ft_s_norm))) * 100 if np.mean(np.abs(Ft_s_norm)) != 0 else 0
+    score_total_bis = rel_fn_norm + rel_ft_norm
 
     results_detail = {
         "Modele": "BASELINE_BEM", "Strat_Entree": "BEM", "Residuelle": "-", "Intermediaire": "-", "Suffixe": "-",
         "RMSE_Fn": round(rmse_fn, 4), "RMSE_Ft": round(rmse_ft, 4), 
-        "RMSE_Fn_norm": None, "RMSE_Ft_norm": None,
+        "RMSE_Fn_norm": round(rmse_fn_norm, 4), "RMSE_Ft_norm": round(rmse_ft_norm, 4),
         "Rel_Fn (%)": round(rel_fn, 2), "Rel_Ft (%)": round(rel_ft, 2),
+        "Rel_Fn_norm (%)": round(rel_fn_norm, 2), "Rel_Ft_norm (%)": round(rel_ft_norm, 2),
         "Total_Score_Test (%)": round(score_total, 2), 
-        "Total_Score_CV_150 (%)": -1.0, 
-        "Total_Score_CV2_1000 (%)": -1.0, 
-        "CV2_Variance (%)": -1.0,
+        "Total_Score_Test_Bis (%)": round(score_total_bis, 2),
+        "Total_Score_CV_150 (%)": -1.0, "Total_Score_CV2_1000 (%)": -1.0, "CV2_Variance (%)": -1.0,
         "Wasserstein_Dist": round(wd_score_baseline, 4)
     }
     
@@ -437,4 +358,4 @@ def evaluate_baselines(df_test):
         df_recap = pd.DataFrame([results_detail])
         
     df_recap.to_csv(recap_path, index=False)
-    print(f"   Baseline BEM enregistrée. Score : {score_total:.2f}% | WD : {wd_score_baseline:.4f}")
+    print(f"   Baseline BEM enregistrée. Score Absolu : {score_total:.2f}% | Score Bis (Norm) : {score_total_bis:.2f}%")
