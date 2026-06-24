@@ -361,3 +361,5 @@ class PhysicsInformedLoss(nn.Module):
         
         loss_f = self.mse(f_pred_norm, f_true_norm)
         return (1 - self.lambda_val) * loss_v + self.lambda_val * loss_f
+    
+class PowerLoss(nn.Module)

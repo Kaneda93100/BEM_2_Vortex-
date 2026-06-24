@@ -58,4 +58,5 @@ LAMBDA_INGENIEUR = 0.5
 
 # Dimensions latentes autorisées
 LATENT_DIMS_GV = [0, 32, 64, 128, 256]
+
 LATENT_DIMS_GM = [0, 128, 256, 512]

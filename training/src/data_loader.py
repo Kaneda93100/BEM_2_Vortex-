@@ -1,4 +1,8 @@
 import os
+
+import sys
+sys.path.append(os.path.join(os.path.join(os.path.dirname(__file__), '..'), '..')) 
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split

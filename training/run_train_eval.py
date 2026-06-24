@@ -1,6 +1,7 @@
 import time
 import os
-from training.src.data_loader import load_clean_data, get_splits
+import sys
+from src.data_loader import load_clean_data, get_splits
 from training.src.optimize_ae import optimize_and_train_ae
 from training.src.optimize import optimize
 from training.src.evaluate import evaluator, evaluate_baselines
@@ -109,7 +110,7 @@ def main():
         print(f"{'#'*80}")
         
         gm_f_experiments = []
-        for res_strat in ['0', '1', '2']:
+        for res_strat in ['1', '2']:
             gm_f_experiments.append({'entree': 'GM', 'res': res_strat, 'inter': 'f', 'trials': TRIALS_GM, 'dims': LATENT_DIMS_GM})
         
         for exp in gm_f_experiments:
@@ -155,7 +156,7 @@ def main():
         print(f"{'#'*80}")
         
         gm_v_experiments = []
-        for res_strat in ['0', '1', '2']:
+        for res_strat in ['1', '2']:
             gm_v_experiments.append({'entree': 'GM', 'res': res_strat, 'inter': 'v', 'trials': TRIALS_GM, 'dims': LATENT_DIMS_GM})
         
         for exp in gm_v_experiments:
