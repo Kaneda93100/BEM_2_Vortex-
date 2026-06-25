@@ -121,6 +121,10 @@ def optimize_and_train_ae(df_train, entree, residuelle, inter, latent_dim, ae_na
             if entree == 'GM':
                 # D_tensor est (Batch, 2592) -> on le broadcast sur les 2 canaux (Fn et Ft)
                 D_tensor = D_tensor.view(-1, 1, 36, 72).expand(-1, 2, -1, -1)
+            elif entree == 'GV':
+                # D_tensor est (N, 5184) avec [D,D] entrelacés -> reshape en (N, 2, 36, 72)
+                # pour correspondre à Y_target reshapé de la même façon
+                D_tensor = D_tensor.reshape(-1, 2, 36, 72)
         else:
             if entree == 'GM':
                 # Pour le MLP (DV), GM concatène Fn (2592) puis Ft (2592) -> (Batch, 5184)
