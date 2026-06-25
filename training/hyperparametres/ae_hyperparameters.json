@@ -120,5 +120,351 @@
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 512
+    },
+    "GV_0_f_DV16": {
+        "ae_lr": 0.0003139576099377183,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_0_f_DV32": {
+        "ae_lr": 0.00013125827367810083,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_0_f_DM16": {
+        "ae_lr": 0.0025088630352099197,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_0_f_DM32": {
+        "ae_lr": 0.000338895590060362,
+        "ae_depth": 2,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_0_v_DV16": {
+        "ae_lr": 0.002634051233761947,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_0_v_DV32": {
+        "ae_lr": 0.0001063237485747341,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_0_v_DM16": {
+        "ae_lr": 0.0009382692301298863,
+        "ae_depth": 3,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_0_v_DM32": {
+        "ae_lr": 0.0029287121617936024,
+        "ae_depth": 3,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1_f_DV16": {
+        "ae_lr": 0.0007779010620620447,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1_f_DV32": {
+        "ae_lr": 0.00026636899822804857,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1_f_DM16": {
+        "ae_lr": 0.00305894307746624,
+        "ae_depth": 3,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1_f_DM32": {
+        "ae_lr": 0.0008940901078933176,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1_v_DV16": {
+        "ae_lr": 0.001434433433305762,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1_v_DV32": {
+        "ae_lr": 0.00028529707007335234,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1_v_DM16": {
+        "ae_lr": 0.004097054357257079,
+        "ae_depth": 3,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1_v_DM32": {
+        "ae_lr": 0.002610615531337343,
+        "ae_depth": 4,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_0_f_DV16": {
+        "ae_lr": 0.002448973106197148,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_0_f_DV32": {
+        "ae_lr": 0.0007655733621090926,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_0_f_DM16": {
+        "ae_lr": 0.001146292938843844,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_0_f_DM32": {
+        "ae_lr": 0.0001223055522967027,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_0_v_DV16": {
+        "ae_lr": 0.0013293018715925613,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_0_v_DV32": {
+        "ae_lr": 0.002353776033887484,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_0_v_DM16": {
+        "ae_lr": 0.0014296347229161572,
+        "ae_depth": 3,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_0_v_DM32": {
+        "ae_lr": 0.00027661803472273723,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_1_f_DV16": {
+        "ae_lr": 0.0010092314811366069,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_1_f_DV32": {
+        "ae_lr": 0.0010901807759266984,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_1_f_DM16": {
+        "ae_lr": 0.0007411953878153793,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_1_f_DM32": {
+        "ae_lr": 0.00015952220144169345,
+        "ae_depth": 3,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_1_v_DV16": {
+        "ae_lr": 0.0009680770005821377,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_1_v_DV32": {
+        "ae_lr": 0.0004399472546276825,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_1_v_DM16": {
+        "ae_lr": 0.0006244480572031952,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_1_v_DM32": {
+        "ae_lr": 0.0005914728394337838,
+        "ae_depth": 4,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_2_f_DV16": {
+        "ae_lr": 0.0042614327095848665,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_2_f_DV32": {
+        "ae_lr": 0.0012721061864133661,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_2_f_DM16": {
+        "ae_lr": 0.0005946474535638055,
+        "ae_depth": 3,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_2_f_DM32": {
+        "ae_lr": 0.0007260532175380133,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_2_v_DV16": {
+        "ae_lr": 0.0018245048833495595,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_2_v_DV32": {
+        "ae_lr": 0.003144049194770539,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_2_v_DM16": {
+        "ae_lr": 0.0003104231392441607,
+        "ae_depth": 3,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_2_v_DM32": {
+        "ae_lr": 0.001090757607754852,
+        "ae_depth": 4,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1+_f_DV16": {
+        "ae_lr": 0.000929069615591941,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1+_f_DV32": {
+        "ae_lr": 0.0020588216466867447,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1+_f_DM16": {
+        "ae_lr": 0.00037372309364520597,
+        "ae_depth": 4,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1+_f_DM32": {
+        "ae_lr": 0.0008588647055439552,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1+_v_DV16": {
+        "ae_lr": 0.0018562979179147262,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1+_v_DV32": {
+        "ae_lr": 0.0006411198071798442,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_1+_v_DM16": {
+        "ae_lr": 0.002575426903312627,
+        "ae_depth": 4,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_1+_v_DM32": {
+        "ae_lr": 0.00013603897402865764,
+        "ae_depth": 2,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GV_2+_f_DV16": {
+        "ae_lr": 0.001080129855610124,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GV_2+_f_DV32": {
+        "ae_lr": 0.0008218309508588158,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_2_f_DV16": {
+        "ae_lr": 0.00021670842814951766,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_2_f_DV32": {
+        "ae_lr": 0.00014796096169975543,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_2_f_DM16": {
+        "ae_lr": 0.001474965329295879,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_2_f_DM32": {
+        "ae_lr": 0.00025230625525583746,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_2_v_DV16": {
+        "ae_lr": 0.00477362829217067,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_2_v_DV32": {
+        "ae_lr": 0.0012743798929591174,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "GM_2_v_DM16": {
+        "ae_lr": 0.0006344506949473481,
+        "ae_depth": 4,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "GM_2_v_DM32": {
+        "ae_lr": 0.00016281577175049792,
+        "ae_depth": 4,
+        "ae_base_filters": 8,
+        "use_autoencoder": true,
+        "latent_dim": 32
     }
 }

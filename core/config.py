@@ -51,6 +51,7 @@ RESIDUELLES = ['0', '1', '2', '2+']
 INTERMS = ['f', 'v']
 OPTIONS = ['A', 'B'] 
 
+<<<<<<< HEAD
 AE_NATURES = ['V', 'M']  
 AE_DIMS = [16, 32, 64, 128, 256, 512, 1024]
 
@@ -62,3 +63,9 @@ RATIO_THRESHOLD = 2.5
 
 AE_JSON_PATH = "training/hyperparametres/ae_hyperparameters.json"
 AE_WEIGHTS_DIR = "training/models/ae/"
+=======
+# Dimensions latentes autorisées
+LATENT_DIMS_GV = [0, 32, 64, 128, 256]
+
+LATENT_DIMS_GM = [0, 128, 256, 512]
+>>>>>>> 0ae0f0d64e97cc8166aebf6dd807446e7e5ebdcd

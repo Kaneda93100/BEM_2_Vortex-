@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import pandas as pd
 import os
@@ -183,6 +184,44 @@ def compute_cp(df, col_fn, col_ft, R_rotor=R_ROTOR, Nb_pales=3, omega=OMEGA):
         results.append(res_dict)
         
     return pd.DataFrame(results)
+
+def compute_cp_diff(df, col_fn:torch.tensor, col_ft:torch.tensor, device, R_rotor=R_ROTOR, Nb_pales=3, omega=OMEGA) :
+    
+    if col_fn.shape[0] != 2592 or col_ft.shape[0] != 2592:
+        raise Exception(f"Les tenseurs d'entrée ne sont pas de bonne dimension.")
+    if col_fn.device.type != device :
+        col_fn = col_fn.to(device)
+    if col_ft.device.type != device :
+        col_ft = col_ft.to(device)
+    
+    df_calc = df.copy()
+    geom = get_geometry()
+    
+    # 1. Calcul des longueurs de sections (dl) --> Pas besoins d'être auto-diff
+    r_unique = np.sort(df_calc['r'].unique())
+    nodes = [0.21] # Rayon du moyeu
+    for i in range(len(r_unique)):
+        next_node = 2 * r_unique[i] - nodes[-1]
+        nodes.append(next_node)
+
+    dl_map = dict(zip(r_unique, np.diff(nodes)))
+    df_calc['dl'] = df_calc['r'].map(dl_map)
+    
+    # 2. Angle structurel de la pale (Pitch + Twist) --> Pas besoin d'être auto-diff
+    df_calc['phi_rad'] = PITCH_RAD + geom.get_twist_rad(df_calc['r'])
+    
+    # 3. Projections Aérodynamiques
+    Ft_corrige = col_ft * -1 
+    cos_phi = torch.cos(torch.tensor(df_calc['phi_rad'].values, dtype = torch.float32, device = device))
+    sin_phi = torch.sin(torch.tensor(df_calc['phi_rad'].values, dtype = torch.float32, device = device))
+
+    # 4. Calcul de la densité de puissance
+    dQ_r = col_fn * sin_phi + Ft_corrige * cos_phi
+    dQ = dQ_r * torch.tensor(df_calc['r'].values, dtype = torch.float32, device = device)\
+              * torch.tensor(df_calc['dl'].values, dtype = torch.float32, device = device)
+    
+    return dQ
+
 
 def compute_V_app(df):
     """

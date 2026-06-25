@@ -489,8 +489,27 @@ class TurbineLoss(nn.Module):
             Cp_p, Ct_p = compute_cp_ct_torch(Fn_p_abs, Ft_p_abs, self.r_tensor, u_inf, is_cnn_auto)
             Cp_t, Ct_t = compute_cp_ct_torch(Fn_t_abs, Ft_t_abs, self.r_tensor, u_inf, is_cnn_auto)
             
+<<<<<<< HEAD
             err_cp = torch.mean(((Cp_p - Cp_t) / torch.abs(Cp_t))**2)
             err_ct = torch.mean(((Ct_p - Ct_t) / torch.abs(Ct_t))**2)
             loss_macro = err_cp + err_ct
 
         return self.l1 * loss_macro + self.l2 * loss_f + self.l3 * loss_v
+=======
+        if is_cnn:
+            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(self.c)
+            D_phys = D_phys.unsqueeze(1) # Image (B, 1, 36, 72) pour broadcaster sur les 2 canaux Fn, Ft
+        else:
+            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(self.c)
+            D_phys = torch.repeat_interleave(D_phys, 2, dim=1) # Vectoriel (B, 5184) alterné pour Fn, Ft
+            
+        # On divise par D avant d'appliquer la standardisation statistique
+        f_pred_norm = self.scaler_f.transform(f_pred_phys / D_phys)
+        f_true_norm = self.scaler_f.transform(f_true_phys / D_phys)
+        # =====================================================================
+        
+        loss_f = self.mse(f_pred_norm, f_true_norm)
+        return (1 - self.lambda_val) * loss_v + self.lambda_val * loss_f
+    
+class PowerLoss(nn.Module)
+>>>>>>> 0ae0f0d64e97cc8166aebf6dd807446e7e5ebdcd

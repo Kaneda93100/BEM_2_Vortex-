@@ -45,5 +45,9 @@ class ForceEncoder(nn.Module) :
         return self.decoder(x)
     def forward(self, x) :
         return self.decode(self.encode(x))
-    
+
+class PowerLoss(nn.Module) :
+    def __init__():super().__init__()
+
+    def forward(input, target)
     
