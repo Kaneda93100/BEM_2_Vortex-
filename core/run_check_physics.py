@@ -10,9 +10,8 @@ if root_path not in sys.path:
     sys.path.insert(0, root_path)
 
 from training.src.data_loader import load_clean_data
-from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D
-from core.models import PolarSurrogate, convert_v_to_f_torch
-
+from core.models import PolarSurrogate, convert_v_to_f_torch,compute_cp_ct_torch
+from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
 # Constantes pour le calcul de V_app
 from core.config import OMEGA, R_ROTOR
 
@@ -181,6 +180,48 @@ def main():
     ratio = np.mean(np.abs(Cn_SVEN)) / np.mean(np.abs(Ct_SVEN))
     print(f"\nRapport d'amplitude absolu (Moy |Cn| / Moy |Ct|) : {ratio:.2f}")
    
+    # =================================================================
+    # VÉRIFICATION DE CP ET CT DIFFÉRENTIABLE vs NUMPY
+    # =================================================================
+    print("\n=== VÉRIFICATION CP & CT DIFFÉRENTIABLE vs NUMPY ===")
+    
+    yaw_test = df['yaw'].unique()[0]
+    df_case = df[df['yaw'] == yaw_test].copy()
+    
+    # 1. Version NUMPY de référence
+    cp_ct_np = compute_cp(df_case, 'Fn_SVEN', 'Ft_SVEN')
+    cp_np = cp_ct_np['Cp_SVEN'].values[0]
+    ct_np = cp_ct_np['Ct_SVEN'].values[0]
+    
+    # 2. Version PYTORCH (Format Grid CNN)
+    df_case = df_case.sort_values(['r', 'theta'])
+    r_uniques = np.sort(df_case['r'].unique())
+    theta_uniques = np.sort(df_case['theta'].unique())
+    
+    fn_grid = df_case['Fn_SVEN'].values.reshape(len(r_uniques), len(theta_uniques))
+    ft_grid = df_case['Ft_SVEN'].values.reshape(len(r_uniques), len(theta_uniques))
+    
+    R_grid, _ = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
+    
+    fn_tensor = torch.tensor(fn_grid, dtype=torch.float32, device=device).unsqueeze(0)
+    ft_tensor = torch.tensor(ft_grid, dtype=torch.float32, device=device).unsqueeze(0)
+    r_tensor_grid = torch.tensor(R_grid, dtype=torch.float32, device=device).unsqueeze(0)
+    
+    tsr_test = df_case['TSR'].iloc[0] if 'TSR' in df_case.columns else 8.0
+    u_inf = (OMEGA * R_ROTOR) / tsr_test
+    u_inf_tensor = torch.tensor([u_inf], dtype=torch.float32, device=device)
+    
+    with torch.no_grad():
+        cp_pt, ct_pt = compute_cp_ct_torch(fn_tensor, ft_tensor, r_tensor_grid, u_inf_tensor, is_cnn=True)
+        
+    print(f"  [NUMPY]   -> Cp: {cp_np:.6f} | Ct: {ct_np:.6f}")
+    print(f"  [PYTORCH] -> Cp: {cp_pt.item():.6f} | Ct: {ct_pt.item():.6f}")
+    
+    err_cp = abs(cp_np - cp_pt.item())
+    err_ct = abs(ct_np - ct_pt.item())
+    print(f"  Erreur Cp: {err_cp:.2e} | Erreur Ct: {err_ct:.2e}")
+    
+
 
 if __name__ == "__main__":
     main()

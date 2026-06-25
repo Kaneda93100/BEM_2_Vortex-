@@ -3,7 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pandas as pd
 import numpy as np
-from core.config import RHO, KERNEL_SIZE, PADDING_R, PADDING_THETA  # <-- Centralisation config !
+from core.config import RHO, KERNEL_SIZE, PADDING_R, PADDING_THETA, R_ROTOR, OMEGA
+
+# =========================================================================
+# 1. RÉSEAUX PRÉDICTIFS
+# =========================================================================
 
 class TurbineMLP(nn.Module):
     """ Stratégie GV : Le réseau global vectoriel (MLP classique) """
@@ -22,7 +26,6 @@ class TurbineMLP(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-
 class PeriodicPadding2d(nn.Module):
     """ Padding physique respectant la périodicité de la grille polaire """
     def __init__(self, pad_r, pad_theta):
@@ -31,181 +34,152 @@ class PeriodicPadding2d(nn.Module):
         self.pad_theta = pad_theta
 
     def forward(self, x):
-        x = F.pad(x, (self.pad_theta, self.pad_theta, 0, 0), mode='circular')
         x = F.pad(x, (0, 0, self.pad_r, self.pad_r), mode='replicate')
+        x = F.pad(x, (self.pad_theta, self.pad_theta, 0, 0), mode='circular')
         return x
 
-
-class ResBlockPeriodic(nn.Module):
-    """ Bloc Résiduel respectant la périodicité de la grille polaire """
-    def __init__(self, in_channels, out_channels, device='cpu'):
-        super(ResBlockPeriodic, self).__init__()
-        self.pad = PeriodicPadding2d(pad_r=PADDING_R, pad_theta=PADDING_THETA)
-        
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=KERNEL_SIZE, padding=0, device=device)
-        self.bn1 = nn.BatchNorm2d(out_channels, device=device)
-        self.relu = nn.ReLU()
-        
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=KERNEL_SIZE, padding=0, device=device)
-        self.bn2 = nn.BatchNorm2d(out_channels, device=device)
-        
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, device=device),
-                nn.BatchNorm2d(out_channels, device=device)
-            )
-
-    def forward(self, x):
-        residual = self.shortcut(x)
-        out = self.pad(x)
-        out = self.conv1(out)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.pad(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += residual
-        return self.relu(out)
-
-
 class TurbineCNN(nn.Module):
-    """ Stratégie GM : Réseau Convolutif pour prédictions spatiales (36x72) """
-    def __init__(self, in_channels, out_channels, use_autoencoder=False, latent_dim=64, n_layers=4, base_filters=64, dropout_rate=0.1, device='cpu'):
+    """ Stratégie GM : Le réseau global matriciel (CNN) """
+    def __init__(self, in_channels, out_channels, use_autoencoder, latent_dim, n_layers, base_filters, dropout_rate, device='cpu'):
         super(TurbineCNN, self).__init__()
         self.use_autoencoder = use_autoencoder
-
-        self.initial_conv = nn.Sequential(
-            PeriodicPadding2d(pad_r=PADDING_R, pad_theta=PADDING_THETA),
-            nn.Conv2d(in_channels, base_filters, kernel_size=KERNEL_SIZE, padding=0, device=device),
-            nn.BatchNorm2d(base_filters, device=device),
-            nn.ReLU()
-        )
-        
         layers = []
-        curr_filters = base_filters
-        for _ in range(n_layers):
-            layers.append(ResBlockPeriodic(curr_filters, curr_filters, device=device))
-            if dropout_rate > 0:
-                layers.append(nn.Dropout2d(dropout_rate))
-                
-        self.conv_backbone = nn.Sequential(*layers)
+        current_channels = in_channels
+        
+        for i in range(n_layers):
+            out_f = base_filters * (2**i)
+            layers.append(PeriodicPadding2d(PADDING_R, PADDING_THETA))
+            layers.append(nn.Conv2d(current_channels, out_f, kernel_size=KERNEL_SIZE, device=device))
+            layers.append(nn.BatchNorm2d(out_f, device=device))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout2d(dropout_rate))
+            current_channels = out_f
+            
+        self.feature_extractor = nn.Sequential(*layers)
+        self.grid_r, self.grid_theta = 36, 72 
         
         if use_autoencoder:
-            self.final_head = nn.Sequential(
+            self.final_layer = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(curr_filters * 36 * 72, latent_dim, device=device)
+                nn.Linear(current_channels * self.grid_r * self.grid_theta, latent_dim, device=device)
             )
         else:
-            self.final_head = nn.Sequential(
-                PeriodicPadding2d(pad_r=PADDING_R, pad_theta=PADDING_THETA),
-                nn.Conv2d(curr_filters, out_channels, kernel_size=KERNEL_SIZE, padding=0, device=device)
+            self.final_layer = nn.Sequential(
+                PeriodicPadding2d(PADDING_R, PADDING_THETA),
+                nn.Conv2d(current_channels, out_channels, kernel_size=KERNEL_SIZE, device=device)
             )
 
     def forward(self, x):
-        x = self.initial_conv(x)  
-        x = self.conv_backbone(x)
-        return self.final_head(x)
+        features = self.feature_extractor(x)
+        return self.final_layer(features)
 
+# =========================================================================
+# 2. AUTO-ENCODEURS (BANQUE DXY)
+# =========================================================================
+
+class LinearAutoencoder(nn.Module):
+    """ Auto-encodeur pour la stratégie GV (1D) """
+    def __init__(self, in_features=5184, latent_dim=32, device='cpu'):
+        super(LinearAutoencoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(in_features, 512, device=device), nn.ReLU(),
+            nn.Linear(512, 128, device=device), nn.ReLU(),
+            nn.Linear(128, latent_dim, device=device)
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, 128, device=device), nn.ReLU(),
+            nn.Linear(128, 512, device=device), nn.ReLU(),
+            nn.Linear(512, in_features, device=device)
+        )
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
+        
+    def decode(self, z):
+        return self.decoder(z)
+        
+    def encode(self, x):
+        return self.encoder(x)
 
 class ConvolutionalAutoencoder(nn.Module):
-    """ Auto-encodeur Convolutif pour la compression de grilles """
-    def __init__(self, in_channels=2, latent_dim=64, depth=2, base_filters=16, device='cpu'):
+    """ Auto-encodeur pour la stratégie GM (2D) """
+    def __init__(self, in_channels=2, latent_dim=32, depth=3, base_filters=16, device='cpu'):
         super(ConvolutionalAutoencoder, self).__init__()
-        self.device = device
+        self.grid_r, self.grid_theta = 36, 72 
         
         enc_layers = []
-        curr_in = in_channels
-        curr_f = base_filters
-        self.target_shapes = []
-        h_current, w_current = 36, 72 
-        
+        current_channels = in_channels
         for i in range(depth):
-            self.target_shapes.append((h_current, w_current))
-            enc_layers.append(PeriodicPadding2d(pad_r=PADDING_R, pad_theta=PADDING_THETA))
-            enc_layers.append(nn.Conv2d(curr_in, curr_f, kernel_size=KERNEL_SIZE, stride=2, padding=0, device=device))
-            enc_layers.append(nn.BatchNorm2d(curr_f, device=device))
+            out_f = base_filters * (2**i)
+            enc_layers.append(PeriodicPadding2d(1, 1))
+            enc_layers.append(nn.Conv2d(current_channels, out_f, kernel_size=3, stride=2, device=device))
+            enc_layers.append(nn.BatchNorm2d(out_f, device=device))
             enc_layers.append(nn.ReLU())
-            enc_layers.append(ResBlockPeriodic(curr_f, curr_f, device=device))
-            
-            curr_in = curr_f
-            curr_f *= 2 
-            h_current = (h_current - 1) // 2 + 1
-            w_current = (w_current - 1) // 2 + 1
+            current_channels = out_f
             
         self.encoder_conv = nn.Sequential(*enc_layers)
-        self.curr_channels = curr_in
-        self.h_final = h_current
-        self.w_final = w_current
-        self.flatten_dim = self.curr_channels * self.h_final * self.w_final
-        self.encoder_linear = nn.Linear(self.flatten_dim, latent_dim, device=device)
-
-        self.decoder_linear = nn.Sequential(
-            nn.Linear(latent_dim, self.flatten_dim, device=device),
-            nn.ReLU()
-        )
+        
+        # Calcul dynamique de la taille aplatie (évite les erreurs d'arrondi du padding)
+        with torch.no_grad():
+            dummy_x = torch.zeros(1, in_channels, self.grid_r, self.grid_theta, device=device)
+            dummy_out = self.encoder_conv(dummy_x)
+            flattened_size = dummy_out.numel()
+            self.flat_r = dummy_out.size(2)
+            self.flat_theta = dummy_out.size(3)
+        
+        self.encoder_fc = nn.Linear(flattened_size, latent_dim, device=device)
+        self.decoder_fc = nn.Linear(latent_dim, flattened_size, device=device)
+        self.current_channels = current_channels
         
         dec_layers = []
-        curr_in_dec = self.curr_channels
-        restore_shapes = list(reversed(self.target_shapes))
-        
-        for i in range(depth):
-            dec_layers.append(ResBlockPeriodic(curr_in_dec, curr_in_dec, device=device))
-            next_f = curr_in_dec // 2 if i < depth - 1 else in_channels
-            target_h, target_w = restore_shapes[i]
-            
-            dec_layers.append(nn.Upsample(size=(target_h, target_w), mode='nearest'))
-            dec_layers.append(PeriodicPadding2d(pad_r=PADDING_R, pad_theta=PADDING_THETA))
-            dec_layers.append(nn.Conv2d(curr_in_dec, next_f, kernel_size=KERNEL_SIZE, padding=0, device=device))
-            
-            if i < depth - 1:
-                dec_layers.append(nn.BatchNorm2d(next_f, device=device))
+        for i in range(depth - 1, -1, -1):
+            out_f = base_filters * (2**(i-1)) if i > 0 else in_channels
+            dec_layers.append(nn.ConvTranspose2d(current_channels, out_f, kernel_size=4, stride=2, padding=1, device=device))
+            if i > 0:
+                dec_layers.append(nn.BatchNorm2d(out_f, device=device))
                 dec_layers.append(nn.ReLU())
-            curr_in_dec = next_f
-
+            current_channels = out_f
+            
         self.decoder_conv = nn.Sequential(*dec_layers)
-
-    def encode(self, x):
-        features = self.encoder_conv(x)
-        features = features.view(features.size(0), -1)
-        return self.encoder_linear(features)
-
-    def decode(self, z):
-        x = self.decoder_linear(z)
-        x = x.view(-1, self.curr_channels, self.h_final, self.w_final)
-        return self.decoder_conv(x)
 
     def forward(self, x):
         return self.decode(self.encode(x))
 
+    def encode(self, x):
+        features = self.encoder_conv(x)
+        features_flat = features.reshape(features.size(0), -1)
+        return self.encoder_fc(features_flat)
 
-class LinearAutoencoder(nn.Module):
-    """ Auto-encodeur (MLP) pour la stratégie GV """
-    def __init__(self, in_features=5184, latent_dim=64, device='cpu'):
-        super(LinearAutoencoder, self).__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(in_features, 512, device=device),
-            nn.ReLU(),
-            nn.BatchNorm1d(512, device=device),
-            nn.Linear(512, latent_dim, device=device)
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 512, device=device),
-            nn.ReLU(),
-            nn.BatchNorm1d(512, device=device),
-            nn.Linear(512, in_features, device=device)
-        )
+    def decode(self, z):
+        x_rec_flat = self.decoder_fc(z)
+        x_rec_reshaped = x_rec_flat.reshape(x_rec_flat.size(0), self.current_channels, self.flat_r, self.flat_theta)
+        x_rec = self.decoder_conv(x_rec_reshaped)
+        if x_rec.size(2) != self.grid_r or x_rec.size(3) != self.grid_theta:
+             x_rec = F.interpolate(x_rec, size=(self.grid_r, self.grid_theta), mode='bilinear', align_corners=False)
+        return x_rec
 
-    def encode(self, x): return self.encoder(x)
-    def decode(self, z): return self.decoder(z)
-    def forward(self, x): return self.decoder(self.encoder(x))
-
+# =========================================================================
+# 3. GESTIONNAIRE D'ÉCHELLES (SCALERS) PYTORCH
+# =========================================================================
 
 class TorchScaler:
     """ Transforme un StandardScaler sklearn en opérations PyTorch différentiables """
     def __init__(self, sklearn_scaler, device):
-        self.mean = torch.tensor(sklearn_scaler.mean_, dtype=torch.float32, device=device)
-        self.scale = torch.tensor(sklearn_scaler.scale_, dtype=torch.float32, device=device)
+        if isinstance(sklearn_scaler, TorchScaler):
+            self.mean = sklearn_scaler.mean.clone().to(device)
+            self.scale = sklearn_scaler.scale.clone().to(device)
+        else:
+            mean_val = getattr(sklearn_scaler, 'mean_', None)
+            if mean_val is not None:
+                self.mean = torch.tensor(mean_val, dtype=torch.float32, device=device)
+            else:
+                self.mean = torch.tensor(0.0, dtype=torch.float32, device=device)
+            
+            scale_val = getattr(sklearn_scaler, 'scale_', None)
+            if scale_val is not None:
+                self.scale = torch.tensor(scale_val, dtype=torch.float32, device=device)
+            else:
+                self.scale = torch.tensor(1.0, dtype=torch.float32, device=device)
         
     def inverse_transform(self, tensor_norm):
         orig_shape = tensor_norm.shape
@@ -219,21 +193,85 @@ class TorchScaler:
         tensor_norm = (tensor_flat - self.mean) / self.scale
         return tensor_norm.reshape(orig_shape)
 
+# =========================================================================
+# 4. MOTEUR PHYSIQUE DIFFÉRENTIABLE
+# =========================================================================
 
-class DecoderLoss(nn.Module):
-    """ Loss pour la stratégie 'f' : MSE pure dans l'espace standardisé des coefficients """
-    def __init__(self, ae_model=None):
-        super().__init__()
-        self.ae_model = ae_model
-        self.mse = nn.MSELoss()
-
-    def forward(self, z_pred, y_true_norm):
-        y_pred_norm = self.ae_model.decode(z_pred) if self.ae_model is not None else z_pred
-        return self.mse(y_pred_norm, y_true_norm)
-
+def compute_cp_ct_torch(Fn_phys, Ft_phys, r_tensor, u_inf, is_cnn=False):
+    """
+    Intégration différentiable de Cp et Ct.
+    """
+    from core.config import RHO, R_ROTOR, OMEGA, PITCH_RAD
+    from core.physics import get_geometry
+    import torch
+    import numpy as np
+    
+    geom = get_geometry()
+    device = Fn_phys.device
+    
+    # 1. Reconstruction du twist_rad et phi
+    r_np = r_tensor.detach().cpu().numpy()
+    twist_rad = torch.tensor(geom.get_twist_rad(r_np), dtype=torch.float32, device=device)
+    phi_rad = PITCH_RAD + twist_rad
+    
+    # 2. Projection Aérodynamique
+    Ft_corrige = Ft_phys * -1.0
+    cos_phi = torch.cos(phi_rad)
+    sin_phi = torch.sin(phi_rad)
+    
+    dQ_r = Fn_phys * sin_phi + Ft_corrige * cos_phi
+    dT_r = Fn_phys * cos_phi - Ft_corrige * sin_phi
+    
+    # 3. CALCUL DU DL NON UNIFORME
+    if is_cnn:
+        r_unique = r_np[0, :, 0] if r_tensor.dim() == 3 else r_np[:, 0]
+    else:
+        # En GV, r_tensor est 1D (2592), trié par theta puis r. 
+        # Les 36 premiers éléments sont les rayons (r) uniques !
+        r_unique = r_np[:36] 
+        
+    nodes = [0.21]
+    for i in range(len(r_unique)):
+        next_node = 2 * r_unique[i] - nodes[-1]
+        nodes.append(next_node)
+    dl_np = np.diff(nodes)
+    dl_tensor = torch.tensor(dl_np, dtype=torch.float32, device=device)
+    
+    # 4. Intégration sur la pale
+    Nb_pales = 3.0
+    if is_cnn:
+        dl_reshaped = dl_tensor.view(1, -1, 1) # [1, 36, 1]
+        Q_theta = torch.sum(dQ_r * r_tensor * dl_reshaped, dim=1) 
+        T_theta = torch.sum(dT_r * dl_reshaped, dim=1) 
+        Q_mean = torch.mean(Q_theta, dim=1) * Nb_pales
+        T_mean = torch.mean(T_theta, dim=1) * Nb_pales
+    else:
+        # dQ_r est [Batch, 2592]. On le reformate en [Batch, 72 (theta), 36 (r)]
+        dQ_r_2d = dQ_r.view(-1, 72, 36)
+        dT_r_2d = dT_r.view(-1, 72, 36)
+        r_2d = r_tensor.view(72, 36)
+        dl_reshaped = dl_tensor.view(1, 1, 36) # [1, 1, 36]
+        
+        # Intégration spatiale sur le rayon (dim=2)
+        Q_theta = torch.sum(dQ_r_2d * r_2d * dl_reshaped, dim=2)
+        T_theta = torch.sum(dT_r_2d * dl_reshaped, dim=2)
+        
+        # Moyenne temporelle/azimutale sur la rotation (dim=1)
+        Q_mean = torch.mean(Q_theta, dim=1) * Nb_pales
+        T_mean = torch.mean(T_theta, dim=1) * Nb_pales
+        
+    # 5. Calcul des coefficients Cp et Ct avec U_inf (Vent amont)
+    A = torch.pi * (R_ROTOR**2)
+    denom_p = 0.5 * RHO * (u_inf**3) * A
+    denom_t = 0.5 * RHO * (u_inf**2) * A
+    
+    Cp = (Q_mean * OMEGA) / denom_p
+    Ct = T_mean / denom_t
+    
+    return Cp, Ct
 
 class PolarSurrogate(nn.Module):
-    """ Interpolateur 1D vectorisé par section de pale, 100% PyTorch. """
+    """ Interpolateur 1D vectorisé par section de pale, différentiable (Akima Spline). """
     def __init__(self, device='cpu', csv_path="data/geometry/airfoils.csv"):
         super().__init__()
         df = pd.read_csv(csv_path)
@@ -243,121 +281,216 @@ class PolarSurrogate(nn.Module):
         df_cl = df.pivot(index='alpha_deg', columns='r', values='Cl')
         df_cd = df.pivot(index='alpha_deg', columns='r', values='Cd')
         
-        self.register_buffer('alphas_grid', torch.tensor(self.alphas_np, dtype=torch.float32, device=device))
-        self.register_buffer('cl_grid', torch.tensor(df_cl.values, dtype=torch.float32, device=device))
-        self.register_buffer('cd_grid', torch.tensor(df_cd.values, dtype=torch.float32, device=device))
+        self.register_buffer('x', torch.tensor(self.alphas_np, dtype=torch.float32, device=device))
+        self.register_buffer('y_cl', torch.tensor(df_cl.values, dtype=torch.float32, device=device).T)
+        self.register_buffer('y_cd', torch.tensor(df_cd.values, dtype=torch.float32, device=device).T)
         self.register_buffer('radii_grid', torch.tensor(self.radii_np, dtype=torch.float32, device=device))
+
+        self.t_cl = self._compute_akima_derivatives(self.x, self.y_cl)
+        self.t_cd = self._compute_akima_derivatives(self.x, self.y_cd)
+
+    def _compute_akima_derivatives(self, x, y):
+        dx = x[1:] - x[:-1] 
+        dy = y[:, 1:] - y[:, :-1] 
+        m = dy / dx 
+        m_pad = torch.zeros((y.shape[0], m.shape[1] + 4), device=x.device, dtype=x.dtype)
+        m_pad[:, 2:-2] = m
+        m_pad[:, 1] = 2 * m[:, 0] - m[:, 1]
+        m_pad[:, 0] = 2 * m_pad[:, 1] - m[:, 0]
+        m_pad[:, -2] = 2 * m[:, -1] - m[:, -2]
+        m_pad[:, -1] = 2 * m_pad[:, -2] - m[:, -1]
+
+        dm = torch.abs(m_pad[:, 1:] - m_pad[:, :-1])
+        w_right, w_left = dm[:, :-2], dm[:, 2:]     
+
+        denom = w_left + w_right
+        mask = denom == 0
+        t = torch.zeros_like(y)
+        t_num = w_right * m_pad[:, 1:-2] + w_left * m_pad[:, 2:-1]
+        
+        t[~mask] = t_num[~mask] / denom[~mask]
+        t[mask] = 0.5 * (m_pad[:, 1:-2][mask] + m_pad[:, 2:-1][mask])
+        return t
+
+    def _evaluate_spline(self, x_new, r_flat, y_grid, t_grid):
+        dists = torch.abs(r_flat.unsqueeze(1) - self.radii_grid.unsqueeze(0))
+        idx_r = torch.argmin(dists, dim=1) 
+        idx_x = torch.searchsorted(self.x, x_new) - 1
+        idx_x = torch.clamp(idx_x, 0, len(self.x) - 2)
+        
+        x0, x1 = self.x[idx_x], self.x[idx_x + 1]
+        dx = x1 - x0
+        y0, y1 = y_grid[idx_r, idx_x], y_grid[idx_r, idx_x + 1]
+        t0, t1 = t_grid[idx_r, idx_x], t_grid[idx_r, idx_x + 1]
+        
+        t = (x_new - x0) / dx
+        t2, t3 = t * t, t * t * t
+        h00 = 2 * t3 - 3 * t2 + 1
+        h10 = t3 - 2 * t2 + t
+        h01 = -2 * t3 + 3 * t2
+        h11 = t3 - t2
+        
+        return h00 * y0 + h10 * dx * t0 + h01 * y1 + h11 * dx * t1
 
     def forward(self, alpha_deg, r_tensor):
         shape_orig = alpha_deg.shape
         alpha_flat = alpha_deg.contiguous().flatten()
         r_flat = r_tensor.contiguous().flatten()
         
-        dists = torch.abs(r_flat.unsqueeze(1) - self.radii_grid.unsqueeze(0))
-        idx_r_flat = torch.argmin(dists, dim=1) 
-        
-        idx_alpha_high = torch.bucketize(alpha_flat, self.alphas_grid)
-        idx_alpha_high = torch.clamp(idx_alpha_high, min=1, max=len(self.alphas_grid) - 1)
-        idx_alpha_low = idx_alpha_high - 1
-        
-        x0 = self.alphas_grid[idx_alpha_low]
-        x1 = self.alphas_grid[idx_alpha_high]
-        t = (alpha_flat - x0) / (x1 - x0)
-        
-        y0_cl = self.cl_grid[idx_alpha_low, idx_r_flat]
-        y1_cl = self.cl_grid[idx_alpha_high, idx_r_flat]
-        y0_cd = self.cd_grid[idx_alpha_low, idx_r_flat]
-        y1_cd = self.cd_grid[idx_alpha_high, idx_r_flat]
-        
-        cl_interp = y0_cl + t * (y1_cl - y0_cl)
-        cd_interp = y0_cd + t * (y1_cd - y0_cd)
+        cl_interp = self._evaluate_spline(alpha_flat, r_flat, self.y_cl, self.t_cl)
+        cd_interp = self._evaluate_spline(alpha_flat, r_flat, self.y_cd, self.t_cd)
         return torch.stack([cl_interp.view(shape_orig), cd_interp.view(shape_orig)], dim=-1)
 
-
-def convert_v_to_f_torch(v_eff, alpha_deg, r_tensor, c_tensor, polar_surrogate):
-    """ Convertit v_eff et alpha (en DEGRÉS) en forces (Fn, Ft) via la polaire d'aile PyTorch """
+def convert_v_to_f_torch(v_eff, alpha_deg, r_tensor, c_tensor, polar_surrogate, rho=RHO):
+    """
+    Convertit les sorties de l'interpolateur Akima (Cl, Cd) en efforts (Fn, Ft) en [N/m].
+    """
     alpha_rad = alpha_deg * (torch.pi / 180.0)
+    
     r_expanded = r_tensor.expand_as(alpha_deg)
     c_expanded = c_tensor.expand_as(alpha_deg)
     
-    cl_cd = polar_surrogate(alpha_deg, r_expanded)
-    Cl, Cd = cl_cd[..., 0], cl_cd[..., 1]
+    # Récupération des coefficients aérodynamiques via l'interpolation Akima
+    coeffs = polar_surrogate(alpha_deg, r_expanded)
+    cl, cd = coeffs[..., 0], coeffs[..., 1]
     
-    Cn = Cl * torch.cos(alpha_rad) + Cd * torch.sin(alpha_rad)
-    Ct = Cl * torch.sin(alpha_rad) - Cd * torch.cos(alpha_rad)
+    # Projections géométriques (Cn, Ct)
+    cn = cl * torch.cos(alpha_rad) + cd * torch.sin(alpha_rad)
+    ct = cl * torch.sin(alpha_rad) - cd * torch.cos(alpha_rad)
     
-    q = 0.5 * RHO * (v_eff**2) * torch.abs(c_expanded)
-    return torch.stack([q * Cn, -q * Ct], dim=-1)
+    # Calcul de la pression dynamique locale et des forces (N/m)
+    q = 0.5 * rho * (v_eff**2) * torch.abs(c_expanded)
+    fn = q * cn
+    ft = -q * ct  # Convention de signe identique à physics.py
+    
+    return torch.stack([fn, ft], dim=-1)
 
+# =========================================================================
+# 5. NOUVELLE UNIFIED LOSS (A & B)
+# =========================================================================
 
-class PhysicsInformedLoss(nn.Module):
-    """ Loss adaptée pour la prédiction cartésienne adimensionnelle (an, at) """
-    def __init__(self, ae_model, scaler_v, scaler_f, lambda_val, r_tensor, c_tensor, polar_surrogate, device, v_app_train=None, v_app_val=None):
+class TurbineLoss(nn.Module):
+    """ Loss globale implémentant strictement les architectures A et B. """
+    def __init__(self, inter, loss_type, l1, l2, l3, ae_model, scaler_Y, 
+                 r_tensor, c_tensor, polar_surrogate=None, device='cpu'):
         super().__init__()
+        self.inter = inter
+        self.loss_type = loss_type.upper() # 'A' ou 'B'
+        self.l1 = l1
+        self.l2 = l2
+        self.l3 = l3
+        
         self.ae_model = ae_model
-        self.scaler_v = TorchScaler(scaler_v, device)
-        self.scaler_f = TorchScaler(scaler_f, device)
-        self.lambda_val = lambda_val
-        self.r = r_tensor.to(device)
-        self.c = c_tensor.to(device)
-        self.polar_surrogate = polar_surrogate.to(device)
-        self.v_app_train = v_app_train
-        self.v_app_val = v_app_val
-        self.mse = nn.MSELoss()
+        self.scaler_Y = TorchScaler(scaler_Y, device) if scaler_Y else None
+        
+        self.r_tensor = r_tensor.to(device)
+        self.c_tensor = c_tensor.to(device)
+        self.polar_surrogate = polar_surrogate.to(device) if polar_surrogate else None
+        self.eps_t = 1.0
 
-    def forward(self, z_pred, y_true_norm, v_bem_phys=None):
-        y_pred_norm = self.ae_model.decode(z_pred) if self.ae_model is not None else z_pred
-        
-        loss_v = self.mse(y_pred_norm, y_true_norm)
-        if self.lambda_val == 0.0 or self.v_app_train is None: 
-            return loss_v
-            
-        v_pred_phys = self.scaler_v.inverse_transform(y_pred_norm)
-        v_true_phys = self.scaler_v.inverse_transform(y_true_norm)
-        
-        if v_bem_phys is not None:
-            v_pred_phys = v_pred_phys + v_bem_phys
-            v_true_phys = v_true_phys + v_bem_phys
-            
-        is_cnn = (len(v_pred_phys.shape) == 4)
-        if is_cnn:
-            an_p, at_p = v_pred_phys[:, 0], v_pred_phys[:, 1]
-            an_t, at_t = v_true_phys[:, 0], v_true_phys[:, 1]
+    def forward(self, preds_raw, Y_true_norm, D_phys=None, v_bem_phys=None, v_app=None, u_inf=None, is_cnn=False):
+
+        is_cnn_auto = (Y_true_norm.dim() == 4)
+
+        # 1. Décodage AE si nécessaire
+        if self.ae_model is not None:
+            preds_norm = self.ae_model.decode(preds_raw)
+            # Reshape dynamique si l'AE n'a pas la même topologie que le modèle principal
+            if not is_cnn_auto and preds_norm.dim() == 4:
+                preds_norm = preds_norm.view(preds_norm.size(0), -1)
+            elif is_cnn_auto and preds_norm.dim() == 2:
+                preds_norm = preds_norm.view(preds_norm.size(0), 2, 36, 72)
         else:
-            an_p, at_p = v_pred_phys[:, 0::2], v_pred_phys[:, 1::2]
-            an_t, at_t = v_true_phys[:, 0::2], v_true_phys[:, 1::2]
+            preds_norm = preds_raw
             
-        alpha_p_deg = torch.atan2(an_p, at_p) * (180.0 / torch.pi)
-        alpha_t_deg = torch.atan2(an_t, at_t) * (180.0 / torch.pi)
+        # 2. Dénormalisation (Fn/D, Ft/D ou an, at)
+        coeffs_pred = self.scaler_Y.inverse_transform(preds_norm)
+        coeffs_true = self.scaler_Y.inverse_transform(Y_true_norm)
         
-        v_app_slice = self.v_app_train if self.training else self.v_app_val
-        if v_app_slice is None: 
-            v_app_slice = self.v_app_train
+        loss_v = 0.0
+        loss_f = 0.0
+        loss_macro = 0.0
+        Fn_p_abs, Ft_p_abs, Fn_t_abs, Ft_t_abs = None, None, None, None
+
+        # ==============================================================
+        # STRATÉGIE 'v' (Vitesses -> Forces -> Cp/Ct)
+        # ==============================================================
+        if self.inter == 'v':
+            # Terme L3 : Erreur sur les vitesses
+            if self.l3 > 0:
+                an_p, at_p = (coeffs_pred[:,0], coeffs_pred[:,1]) if is_cnn_auto else (coeffs_pred[:,0::2], coeffs_pred[:,1::2])
+                an_t, at_t = (coeffs_true[:,0], coeffs_true[:,1]) if is_cnn_auto else (coeffs_true[:,0::2], coeffs_true[:,1::2])
+                
+                if self.loss_type == 'A': # Relative locale pure
+                    err_an = torch.mean(((an_p - an_t) / torch.abs(an_t))**2)
+                    err_at = torch.mean(((at_p - at_t) / torch.abs(at_t))**2)
+                    loss_v = err_an + err_at
+                else: # Loss B : Normalisée par V_app
+                    loss_v = nn.functional.mse_loss(coeffs_pred, coeffs_true)
+
+            # Reconstruction des Forces Absolues pour L1 et L2
+            if self.l1 > 0 or self.l2 > 0:
+                if v_bem_phys is not None:
+                    coeffs_pred = coeffs_pred + v_bem_phys
+                    coeffs_true = coeffs_true + v_bem_phys
+                    
+                an_p, at_p = (coeffs_pred[:,0], coeffs_pred[:,1]) if is_cnn_auto else (coeffs_pred[:,0::2], coeffs_pred[:,1::2])
+                an_t, at_t = (coeffs_true[:,0], coeffs_true[:,1]) if is_cnn_auto else (coeffs_true[:,0::2], coeffs_true[:,1::2])
+                
+                alpha_p_deg = torch.atan2(an_p, at_p) * (180.0 / torch.pi)
+                alpha_t_deg = torch.atan2(an_t, at_t) * (180.0 / torch.pi)
+                v_eff_p = v_app * torch.sqrt(an_p**2 + at_p**2)
+                v_eff_t = v_app * torch.sqrt(an_t**2 + at_t**2)
+                
+                f_pred = convert_v_to_f_torch(v_eff_p, alpha_p_deg, self.r_tensor, self.c_tensor, self.polar_surrogate)
+                f_true = convert_v_to_f_torch(v_eff_t, alpha_t_deg, self.r_tensor, self.c_tensor, self.polar_surrogate)
+                
+                Fn_p_abs, Ft_p_abs = f_pred[..., 0], f_pred[..., 1]
+                Fn_t_abs, Ft_t_abs = f_true[..., 0], f_true[..., 1]
+                
+                # Terme L2 (Forces pour 'v')
+                if self.l2 > 0:
+                    if self.loss_type == 'A': # Relative locale
+                        err_fn = torch.mean(((Fn_p_abs - Fn_t_abs) / torch.abs(Fn_t_abs))**2)
+                        err_ft = torch.mean(((Ft_p_abs - Ft_t_abs) / torch.clamp(torch.abs(Ft_t_abs), min=self.eps_t))**2)
+                        loss_f = err_fn + err_ft
+                    else: # Loss B : Normalisation physique (Fn/D)
+                        D_phys_local = 0.5 * RHO * (v_app**2) * torch.abs(self.c_tensor)
+                        err_fn_D = torch.mean(((Fn_p_abs/D_phys_local) - (Fn_t_abs/D_phys_local))**2)
+                        err_ft_D = torch.mean(((Ft_p_abs/D_phys_local) - (Ft_t_abs/D_phys_local))**2)
+                        loss_f = err_fn_D + err_ft_D
+
+        # ==============================================================
+        # STRATÉGIE 'f' (Forces -> Cp/Ct)
+        # ==============================================================
+        else: 
+            Fn_p_norm, Ft_p_norm = (coeffs_pred[:,0], coeffs_pred[:,1]) if is_cnn_auto else (coeffs_pred[:,0::2], coeffs_pred[:,1::2])
+            Fn_t_norm, Ft_t_norm = (coeffs_true[:,0], coeffs_true[:,1]) if is_cnn_auto else (coeffs_true[:,0::2], coeffs_true[:,1::2])
             
-        v_eff_p = v_app_slice * torch.sqrt(an_p**2 + at_p**2)
-        v_eff_t = v_app_slice * torch.sqrt(an_t**2 + at_t**2)
+            D_val = D_phys if is_cnn_auto else D_phys[:, 0::2]
             
-        f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p_deg, self.r, self.c, self.polar_surrogate)
-        f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t_deg, self.r, self.c, self.polar_surrogate)
-        
-        if is_cnn:
-            f_pred_phys = f_pred_phys.permute(0, 3, 1, 2)
-            f_true_phys = f_true_phys.permute(0, 3, 1, 2)
-        else:
-            f_pred_phys = f_pred_phys.reshape(v_pred_phys.shape[0], -1)
-            f_true_phys = f_true_phys.reshape(v_true_phys.shape[0], -1)
+            Fn_p_abs = Fn_p_norm * D_val
+            Ft_p_abs = Ft_p_norm * D_val
+            Fn_t_abs = Fn_t_norm * D_val
+            Ft_t_abs = Ft_t_norm * D_val
+
+            if self.l2 > 0:
+                if self.loss_type == 'A': # Relative locale
+                    err_fn = torch.mean(((Fn_p_abs - Fn_t_abs) / torch.abs(Fn_t_abs))**2)
+                    err_ft = torch.mean(((Ft_p_abs - Ft_t_abs) / torch.clamp(torch.abs(Ft_t_abs), min=self.eps_t))**2)
+                    loss_f = err_fn + err_ft
+                else: # Loss B : Normalisation physique (MSE sur Fn/D, Ft/D)
+                    loss_f = nn.functional.mse_loss(coeffs_pred, coeffs_true)
+
+        # ==============================================================
+        # Terme L1 : Erreurs intégrées (Cp, Ct)
+        # ==============================================================
+        if self.l1 > 0 and Fn_p_abs is not None:
+            Cp_p, Ct_p = compute_cp_ct_torch(Fn_p_abs, Ft_p_abs, self.r_tensor, u_inf, is_cnn_auto)
+            Cp_t, Ct_t = compute_cp_ct_torch(Fn_t_abs, Ft_t_abs, self.r_tensor, u_inf, is_cnn_auto)
             
-        if is_cnn:
-            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(self.c)
-            D_phys = D_phys.unsqueeze(1) # Image (B, 1, 36, 72) pour broadcaster sur les 2 canaux Fn, Ft
-        else:
-            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(self.c)
-            D_phys = torch.repeat_interleave(D_phys, 2, dim=1) # Vectoriel (B, 5184) alterné pour Fn, Ft
-            
-        # On divise par D avant d'appliquer la standardisation statistique
-        f_pred_norm = self.scaler_f.transform(f_pred_phys / D_phys)
-        f_true_norm = self.scaler_f.transform(f_true_phys / D_phys)
-        # =====================================================================
-        
-        loss_f = self.mse(f_pred_norm, f_true_norm)
-        return (1 - self.lambda_val) * loss_v + self.lambda_val * loss_f
+            err_cp = torch.mean(((Cp_p - Cp_t) / torch.abs(Cp_t))**2)
+            err_ct = torch.mean(((Ct_p - Ct_t) / torch.abs(Ct_t))**2)
+            loss_macro = err_cp + err_ct
+
+        return self.l1 * loss_macro + self.l2 * loss_f + self.l3 * loss_v

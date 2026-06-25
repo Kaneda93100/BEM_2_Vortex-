@@ -4,242 +4,229 @@ import torch
 import os
 import numpy as np
 import pickle
-from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, DecoderLoss, PhysicsInformedLoss, TorchScaler, convert_v_to_f_torch
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor
 from training.src.trainer import cross_validate
-from core.physics import get_geometry
-from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, LAMBDA_INGENIEUR
+from core.physics import get_geometry, compute_dynamic_pressure_D
+from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR
 
-def optimize(df_train, entree, residuelle, inter, suffixe, n_trials=40):
+def get_u_inf_tensor(df, device='cpu'):
+    u_inf_list = []
+    for _, group in df.groupby(['yaw', 'TSR'] if 'TSR' in df.columns else 'yaw'):
+        tsr_val = group['TSR'].iloc[0] if 'TSR' in group.columns else 8.0
+        u_inf = (OMEGA * R_ROTOR) / tsr_val
+        u_inf_list.append(u_inf)
+    return torch.tensor(u_inf_list, dtype=torch.float32, device=device)
+
+def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_name, n_trials=40):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    base_model_name = f"{entree}_{residuelle}_{inter}"
-    saved_name = f"{base_model_name}_{suffixe}"
-    
     os.makedirs("training/hyperparametres", exist_ok=True)
-    
-    print(f"\n{'='*50}")
-    print(f" OPTIMISATION MODÈLE PRÉDICTIF : {saved_name}")
-    print(f"{'='*50}")
     
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
     is_cnn = (entree == 'GM')
 
-    # Récupération des moyennes SVEN globales pour le calcul du vrai (%) relatif
-    global_mean_fn = df_train['Fn_SVEN'].abs().mean()
-    global_mean_ft = df_train['Ft_SVEN'].abs().mean()
-
-    # Charger le scaler global (qui sert pour f ET pour v)
-    with open(f"training/scalers/scaler_Y_{base_model_name}.pkl", 'rb') as f:
+    with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_{inter}.pkl", 'rb') as f:
         scaler_Y = pickle.load(f)
     scaler_Y_torch = TorchScaler(scaler_Y, device)
 
+    u_inf_full = get_u_inf_tensor(df_train, device)
+
+    # =====================================================================
+    # 1. TENSEURS GÉOMÉTRIQUES 
+    # =====================================================================
+    geom = get_geometry()
+    if is_cnn:
+        r_uniques = np.sort(df_train['r'].unique())
+        theta_uniques = np.sort(df_train['theta'].unique())
+        R_grid, _ = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
+        r_tensor = torch.tensor(R_grid, dtype=torch.float32, device=device)
+        c_grid = np.array([geom.get_chord(r) for r in r_uniques])
+        C_grid, _ = np.meshgrid(c_grid, theta_uniques, indexing='ij')
+        c_tensor = torch.tensor(C_grid, dtype=torch.float32, device=device)
+    else:
+        group = df_train[(df_train['yaw'] == df_train['yaw'].iloc[0])]
+        if 'TSR' in group.columns: group = group[group['TSR'] == group['TSR'].iloc[0]]
+        group = group.sort_values(['theta', 'r'])
+        r_array = group['r'].values
+        r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
+        c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
+
+    # =====================================================================
+    # 2. TENSEURS SPÉCIFIQUES SELON LA STRATÉGIE
+    # =====================================================================
+    polar_surrogate = None
     V_BEM_phys_full = None
+    F_BEM_phys_full = None 
     V_app_full = None
     D_full = None
 
-    # --- PRÉPARATION DE L'ÉVALUATION PHYSIQUE ---
     if inter == 'v':
-        _, _ = format_data(df_train, entree, residuelle, 'f', is_train=True, device=device)
-        with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_f.pkl", 'rb') as f:
-            scaler_f = pickle.load(f)
-            
         polar_surrogate = PolarSurrogate(device=device).to(device)
         V_app_full = get_V_app_tensor(df_train, entree, device)
 
-        geom = get_geometry()
-        if is_cnn:
-            r_uniques = np.sort(df_train['r'].unique())
-            theta_uniques = np.sort(df_train['theta'].unique())
-            R_grid, _ = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
-            r_tensor = torch.tensor(R_grid, dtype=torch.float32, device=device)
-            c_grid = np.array([geom.get_chord(r) for r in r_uniques])
-            C_grid, _ = np.meshgrid(c_grid, theta_uniques, indexing='ij')
-            c_tensor = torch.tensor(C_grid, dtype=torch.float32, device=device)
-        else:
-            group = df_train[(df_train['yaw'] == df_train['yaw'].iloc[0])]
-            if 'TSR' in group.columns: group = group[group['TSR'] == group['TSR'].iloc[0]]
-            group = group.sort_values(['theta', 'r'])
-            r_array = group['r'].values
-            r_tensor = torch.tensor(r_array, dtype=torch.float32, device=device)
-            c_tensor = torch.tensor(np.array([geom.get_chord(r) for r in r_array]), dtype=torch.float32, device=device)
-
-        # Création du tenseur V_BEM_phys_full (qui contient an_bem et at_bem) pour la strat 1_v ou 2_v
-        if str(residuelle) in ['1', '2']:
-            _, Y_full_abs_scaled = format_data(df_train, entree, '0', inter, is_train=False, device=device)
-            with open(f"training/scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: 
-                scaler_v_abs = pickle.load(f_abs)
-                
+        if str(residuelle) in ['1']:
+            _, Y_full_abs_scaled = format_data(df_train, entree, '0', inter, is_train=True, device=device)
+            with open(f"training/scalers/scaler_Y_{entree}_0_v.pkl", 'rb') as f_abs: scaler_v_abs = pickle.load(f_abs)
             an_at_sven = TorchScaler(scaler_v_abs, device).inverse_transform(Y_full_abs_scaled)
             an_at_delta = scaler_Y_torch.inverse_transform(Y_full)
             V_BEM_phys_full = an_at_sven - an_at_delta
     else:
         D_full = get_D_tensor(df_train, entree, device)
 
-    
-    # --- CHARGEMENT DE L'AUTO-ENCODEUR (SI NÉCESSAIRE) ---
-    if suffixe == 'D0':
-        use_ae = False
-        latent_dim = 0
-        ae_params = {"use_autoencoder": False, "latent_dim": 0}
-        current_ae = None
-    else:
-        ae_master_path = "training/hyperparametres/ae_hyperparameters.json"
-        ae_weights_path = f"training/models/ae/ae_{saved_name}.pth"
-        
-        use_ae = os.path.exists(ae_master_path) and os.path.exists(ae_weights_path)
-        if use_ae:
-            with open(ae_master_path, "r") as f: all_ae_params = json.load(f)
-            if saved_name in all_ae_params:
-                ae_params = all_ae_params[saved_name]
-                latent_dim = ae_params['latent_dim']
-                
-                if entree == 'GM':
-                    current_ae = ConvolutionalAutoencoder(in_channels=Y_full.shape[1], latent_dim=latent_dim,
-                                                        depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device)
-                else:
-                    current_ae = LinearAutoencoder(in_features=Y_full.shape[1], latent_dim=latent_dim, device=device).to(device)
-                    
-                current_ae.load_state_dict(torch.load(ae_weights_path, map_location=device))
-                current_ae.eval()
-            else:
-                use_ae = False
-                
-        if not use_ae:
-            latent_dim = 0
-            ae_params = {"use_autoencoder": False, "latent_dim": 0}
-            current_ae = None
+        # Récupération du BEM pour reconstruire les forces absolues en stratégie 'f'
+        if str(residuelle) in ['1']:
+            _, Y_full_abs_scaled = format_data(df_train, entree, '0', inter, is_train=True, device=device)
+            with open(f"training/scalers/scaler_Y_{entree}_0_f.pkl", 'rb') as f_abs: scaler_f_abs = pickle.load(f_abs)
+            fn_ft_sven = TorchScaler(scaler_f_abs, device).inverse_transform(Y_full_abs_scaled)
+            fn_ft_delta = scaler_Y_torch.inverse_transform(Y_full)
+            F_BEM_phys_full = fn_ft_sven - fn_ft_delta
 
-    # --- DÉFINITION DE LA MÉTRIQUE PHYSIQUE POUR OPTUNA ---
-    def compute_phys_score(model, X_val, Y_val, val_idx, preds_val):
-        """ Évalue en N/m la performance pour la Cross-Validation Optuna """
-        preds_norm = current_ae.decode(preds_val) if use_ae else preds_val
-        
+    all_ae_params = {}
+    if has_ae:
+        with open(AE_JSON_PATH, "r") as f: all_ae_params = json.load(f)
+
+    # --- MÉTRIQUES PHYSIQUES ---
+    def compute_phys_score(model, X_val, Y_val, val_idx, preds_val, current_ae=None):
+        preds_norm = current_ae.decode(preds_val) if current_ae is not None else preds_val
+        if current_ae is not None:
+             if len(Y_val.shape) == 2 and len(preds_norm.shape) == 4: preds_norm = preds_norm.view(preds_norm.size(0), -1)
+             elif len(Y_val.shape) == 4 and len(preds_norm.shape) == 2: preds_norm = preds_norm.view(preds_norm.size(0), 2, 36, 72)
+
+        coeffs_pred = scaler_Y_torch.inverse_transform(preds_norm)
+        coeffs_true = scaler_Y_torch.inverse_transform(Y_val)
+
         if inter == 'v':
-            coeffs_pred = scaler_Y_torch.inverse_transform(preds_norm)
-            coeffs_true = scaler_Y_torch.inverse_transform(Y_val)
             v_bem_val = V_BEM_phys_full[val_idx] if V_BEM_phys_full is not None else None
-
-            if v_bem_val is not None:
-                coeffs_pred = coeffs_pred + v_bem_val
-                coeffs_true = coeffs_true + v_bem_val
-
-            if is_cnn:
-                an_p, at_p = coeffs_pred[:, 0], coeffs_pred[:, 1]
-                an_t, at_t = coeffs_true[:, 0], coeffs_true[:, 1]
-            else:
-                an_p, at_p = coeffs_pred[:, 0::2], coeffs_pred[:, 1::2]
-                an_t, at_t = coeffs_true[:, 0::2], coeffs_true[:, 1::2]
-
-            # Cartésien vers Polaire (alpha en degrés)
+            if v_bem_val is not None: coeffs_pred = coeffs_pred + v_bem_val; coeffs_true = coeffs_true + v_bem_val
+            
+            an_p, at_p = (coeffs_pred[:,0], coeffs_pred[:,1]) if is_cnn else (coeffs_pred[:,0::2], coeffs_pred[:,1::2])
+            an_t, at_t = (coeffs_true[:,0], coeffs_true[:,1]) if is_cnn else (coeffs_true[:,0::2], coeffs_true[:,1::2])
+            
             alpha_p_deg = torch.atan2(an_p, at_p) * (180.0 / torch.pi)
             alpha_t_deg = torch.atan2(an_t, at_t) * (180.0 / torch.pi)
-
-            # V_eff = V_app * sqrt(an^2 + at^2)
             v_app_slice = V_app_full[val_idx]
             v_eff_p = v_app_slice * torch.sqrt(an_p**2 + at_p**2)
             v_eff_t = v_app_slice * torch.sqrt(an_t**2 + at_t**2)
-
+            
             f_pred_phys = convert_v_to_f_torch(v_eff_p, alpha_p_deg, r_tensor, c_tensor, polar_surrogate)
             f_true_phys = convert_v_to_f_torch(v_eff_t, alpha_t_deg, r_tensor, c_tensor, polar_surrogate)
-
+            Fn_p_abs, Ft_p_abs = f_pred_phys[..., 0], f_pred_phys[..., 1]
+            Fn_t_abs, Ft_t_abs = f_true_phys[..., 0], f_true_phys[..., 1]
+            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(c_tensor)
+            
+            Fn_p_norm, Ft_p_norm = Fn_p_abs / D_phys, Ft_p_abs / D_phys
+            Fn_t_norm, Ft_t_norm = Fn_t_abs / D_phys, Ft_t_abs / D_phys
+        else:
+            f_bem_val = F_BEM_phys_full[val_idx] if F_BEM_phys_full is not None else None
+            if f_bem_val is not None:
+                coeffs_pred = coeffs_pred + f_bem_val
+                coeffs_true = coeffs_true + f_bem_val
+                
             if is_cnn:
-                Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+                Fn_p_norm, Ft_p_norm = coeffs_pred[:, 0], coeffs_pred[:, 1]
+                Fn_t_norm, Ft_t_norm = coeffs_true[:, 0], coeffs_true[:, 1]
+                D_val = D_full[val_idx]
             else:
-                Fn_p, Ft_p = f_pred_phys[..., 0], f_pred_phys[..., 1]
-                Fn_t, Ft_t = f_true_phys[..., 0], f_true_phys[..., 1]
+                Fn_p_norm, Ft_p_norm = coeffs_pred[:, 0::2], coeffs_pred[:, 1::2]
+                Fn_t_norm, Ft_t_norm = coeffs_true[:, 0::2], coeffs_true[:, 1::2]
+                D_val = D_full[val_idx][:, 0::2] 
 
-        else: # inter == 'f'
-            coeffs_pred = scaler_Y_torch.inverse_transform(preds_norm)
-            coeffs_true = scaler_Y_torch.inverse_transform(Y_val)
+            Fn_p_abs = Fn_p_norm * D_val; Ft_p_abs = Ft_p_norm * D_val
+            Fn_t_abs = Fn_t_norm * D_val; Ft_t_abs = Ft_t_norm * D_val
+            
+            D_phys = D_val
+            Fn_p_norm, Ft_p_norm = Fn_p_abs / D_phys, Ft_p_abs / D_phys
+            Fn_t_norm, Ft_t_norm = Fn_t_abs / D_phys, Ft_t_abs / D_phys
 
-            D_val = D_full[val_idx]
-            f_pred_phys = coeffs_pred * D_val
-            f_true_phys = coeffs_true * D_val
+        # RETOURNE LA MÉTRIQUE A (erreur relative) ou B (erreur normalisée)
+        if option == 'A':
+            err_fn = (Fn_p_abs - Fn_t_abs) / torch.abs(Fn_t_abs)
+            
+            # === SÉCURITÉ POUR Ft ===
+            err_ft = (Ft_p_abs - Ft_t_abs) / torch.clamp(torch.abs(Ft_t_abs), min=1.0)
+            
+            rmse_c = torch.sqrt(torch.mean(err_fn**2)) * 100
+            rmse_d = torch.sqrt(torch.mean(err_ft**2)) * 100
+            return (rmse_c + rmse_d).item()
+        elif option == 'B':
+            rmse_e = torch.sqrt(torch.mean((Fn_p_norm - Fn_t_norm)**2)) * 100
+            rmse_f = torch.sqrt(torch.mean((Ft_p_norm - Ft_t_norm)**2)) * 100
+            return (rmse_e + rmse_f).item()
 
-            if is_cnn:
-                Fn_p, Ft_p = f_pred_phys[:, 0], f_pred_phys[:, 1]
-                Fn_t, Ft_t = f_true_phys[:, 0], f_true_phys[:, 1]
-            else:
-                Fn_p, Ft_p = f_pred_phys[:, 0::2], f_pred_phys[:, 1::2]
-                Fn_t, Ft_t = f_true_phys[:, 0::2], f_true_phys[:, 1::2]
-
-        rmse_fn = torch.sqrt(torch.mean((Fn_p - Fn_t)**2))
-        rmse_ft = torch.sqrt(torch.mean((Ft_p - Ft_t)**2))
-
-        rel_fn = (rmse_fn / global_mean_fn * 100) if global_mean_fn > 0 else 0
-        rel_ft = (rmse_ft / global_mean_ft * 100) if global_mean_ft > 0 else 0
-
-        return (rel_fn + rel_ft).item()
-
-    # --- OBJECTIF OPTUNA ---
     def objective_model(trial):
         lr = trial.suggest_float('lr', LR_BOUNDS[0], LR_BOUNDS[1], log=True)
         dropout_rate = trial.suggest_float('dropout_rate', DROPOUT_BOUNDS[0], DROPOUT_BOUNDS[1])
         
+        if has_ae:
+            ae_nature = trial.suggest_categorical('ae_nature', AE_NATURES)
+            ae_dim = trial.suggest_categorical('ae_dim', AE_DIMS)
+            res_base = str(residuelle).replace('+', '')
+            ae_key = f"{entree}_{res_base}_{inter}_D{ae_nature}{ae_dim}"
+            ae_params = all_ae_params[ae_key]
+            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=np.prod(Y_full.shape[1:]), latent_dim=ae_dim, device=device).to(device)
+            current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
+            current_ae.eval()
+            latent_dim = ae_dim
+        else:
+            current_ae, latent_dim, ae_nature, ae_dim = None, 0, 'None', 0
+            
+        # --- CONTRAINTE CONVEXE POUR LES LAMBDAS ---
+        if inter == 'v':
+            u1 = trial.suggest_float('u1', 0, 1)
+            u2 = trial.suggest_float('u2', 0, 1)
+            u3 = trial.suggest_float('u3', 0, 1)
+            s = u1 + u2 + u3 + 1e-8
+            l1, l2, l3 = u1/s, u2/s, u3/s
+        else: # inter == 'f' -> l3 = 0
+            u1 = trial.suggest_float('u1', 0, 1)
+            s = u1 + 1e-8
+            l1, l2, l3 = u1/s, 1.0 - u1/s, 0.0
+
         if entree == 'GV':
             model_class = TurbineMLP
-            model_kwargs = {
-                'input_dim': X_full.shape[1],
-                'output_dim': latent_dim if use_ae else Y_full.shape[1],
-                'n_layers': trial.suggest_int('n_layers', MLP_LAYERS_BOUNDS[0], MLP_LAYERS_BOUNDS[1]),
-                'n_neurons': trial.suggest_categorical('n_neurons', MLP_NEURONS_CHOICES),
-                'dropout_rate': dropout_rate,
-                'device': device
-            }
-        elif entree == 'GM':
+            model_kwargs = {'input_dim': X_full.shape[1], 'output_dim': latent_dim if has_ae else Y_full.shape[1], 'n_layers': trial.suggest_int('n_layers', MLP_LAYERS_BOUNDS[0], MLP_LAYERS_BOUNDS[1]), 'n_neurons': trial.suggest_categorical('n_neurons', MLP_NEURONS_CHOICES), 'dropout_rate': dropout_rate, 'device': device}
+        else:
             model_class = TurbineCNN
-            model_kwargs = {
-                'in_channels': X_full.shape[1],
-                'out_channels': latent_dim if use_ae else Y_full.shape[1],
-                'use_autoencoder': use_ae,
-                'latent_dim': latent_dim,
-                'n_layers': trial.suggest_int('n_layers', CNN_LAYERS_BOUNDS[0], CNN_LAYERS_BOUNDS[1]),
-                'base_filters': trial.suggest_categorical('base_filters', CNN_FILTERS_CHOICES),
-                'dropout_rate': dropout_rate,
-                'device': device
-            }
+            model_kwargs = {'in_channels': X_full.shape[1], 'out_channels': latent_dim if has_ae else Y_full.shape[1], 'use_autoencoder': has_ae, 'latent_dim': latent_dim, 'n_layers': trial.suggest_int('n_layers', CNN_LAYERS_BOUNDS[0], CNN_LAYERS_BOUNDS[1]), 'base_filters': trial.suggest_categorical('base_filters', CNN_FILTERS_CHOICES), 'dropout_rate': dropout_rate, 'device': device}
 
         def criterion_builder(train_idx=None, val_idx=None):
-            if inter == 'v':
-                v_train = V_app_full[train_idx] if train_idx is not None else V_app_full
-                v_val = V_app_full[val_idx] if val_idx is not None else V_app_full
-                return PhysicsInformedLoss(current_ae, scaler_Y, scaler_f, LAMBDA_INGENIEUR, r_tensor, c_tensor, polar_surrogate, device, v_app_train=v_train, v_app_val=v_val)
-            else:
-                return DecoderLoss(current_ae)
+            return TurbineLoss(
+                inter=inter, loss_type=option, l1=l1, l2=l2, l3=l3, ae_model=current_ae, scaler_Y=scaler_Y, 
+                r_tensor=r_tensor, c_tensor=c_tensor, polar_surrogate=polar_surrogate if inter == 'v' else None, 
+                device=device
+            )
 
-        # Délégation de l'entraînement au trainer.py
+        metric_fn = lambda m, x, y, idx, p: compute_phys_score(m, x, y, idx, p, current_ae)
         mean_val_loss, mean_custom_score, _ = cross_validate(
-            X_full=X_full, Y_full=Y_full,
-            model_class=model_class, model_kwargs=model_kwargs,
-            criterion_builder=criterion_builder,
-            epochs=EPOCHS_OPTUNA, lr=lr,
-            n_splits=CV_SPLITS, device=device, inter=inter,
-            v_bem_phys_full=V_BEM_phys_full,
-            compute_metrics_fn=compute_phys_score
+            X_full=X_full, Y_full=Y_full, model_class=model_class, model_kwargs=model_kwargs,
+            criterion_builder=criterion_builder, epochs=EPOCHS_OPTUNA, lr=lr, n_splits=CV_SPLITS, 
+            device=device, inter=inter, v_bem_phys_full=V_BEM_phys_full, D_phys_full=D_full, v_app_full=V_app_full, u_inf_full=u_inf_full,
+            compute_metrics_fn=metric_fn, trial=trial
         )
 
-        trial.set_user_attr("cv_score_phys_percent", mean_custom_score)
-        return mean_val_loss
+        trial.set_user_attr("cv_score_phys", mean_custom_score)
+        trial.set_user_attr("ae_nature", ae_nature)
+        trial.set_user_attr("ae_dim", ae_dim)
+        trial.set_user_attr("l1", l1); trial.set_user_attr("l2", l2); trial.set_user_attr("l3", l3)
+        return mean_custom_score 
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    study_model = optuna.create_study(direction='minimize')
+    study_model = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner(n_warmup_steps=PRUNER_WARMUP))
     study_model.optimize(objective_model, n_trials=n_trials, show_progress_bar=True)
     
-    # --- SAUVEGARDE DES RÉSULTATS ---
-    best_cv_phys = study_model.best_trial.user_attrs["cv_score_phys_percent"]
-    final_params = {**ae_params, **study_model.best_params}
-    final_params["Total_Score_CV"] = best_cv_phys 
+    best_params = study_model.best_params
+    best_params.update({
+        "ae_nature": study_model.best_trial.user_attrs["ae_nature"], "ae_dim": study_model.best_trial.user_attrs["ae_dim"],
+        "l1": study_model.best_trial.user_attrs["l1"], "l2": study_model.best_trial.user_attrs["l2"], "l3": study_model.best_trial.user_attrs["l3"],
+        "Total_Score_CV": study_model.best_value
+    })
     
+    if has_ae:
+        res_base = str(residuelle).replace('+', '')
+        best_params.update(all_ae_params[f"{entree}_{res_base}_{inter}_D{best_params['ae_nature']}{best_params['ae_dim']}"])
+        
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
-    if os.path.exists(target_json):
-        with open(target_json, "r") as f: all_model_params = json.load(f)
-    else:
-        all_model_params = {}
-        
-    all_model_params[saved_name] = final_params
+    all_model_params = json.load(open(target_json, "r")) if os.path.exists(target_json) else {}
+    all_model_params[model_base_name] = best_params
     with open(target_json, "w") as f: json.dump(all_model_params, f, indent=4)
-        
-    print(f"   [OK] Modèle {saved_name} optimisé.")
-    print(f"   -> MSE Validation : {study_model.best_value:.6f}")
-    print(f"   -> Erreur Relative Physique (CV) : {best_cv_phys:.2f} %")
+    print(f"   [OK] Modèle {model_base_name} optimisé. Métrique {option} CV : {study_model.best_value:.2f} %")

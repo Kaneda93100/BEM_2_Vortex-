@@ -7,6 +7,9 @@ import pickle
 from sklearn.preprocessing import StandardScaler
 from core.config import RHO, U_INFTY, PITCH_RAD, R_ROTOR, OMEGA
 
+# Importations physiques globales
+from core.physics import compute_V_app, get_geometry
+
 def load_clean_data(path_forces="data/raw/fichier_forces.csv", path_vitesses="data/raw/fichier_vitesses.csv"):
     df_f = pd.read_csv(path_forces)
     df_v = pd.read_csv(path_vitesses)
@@ -29,165 +32,168 @@ def get_splits(df, seed=42, test_size=0.2, save_dir=None):
         train_df.to_csv(os.path.join(save_dir, "train.csv"), index=False)
         test_df.to_csv(os.path.join(save_dir, "test.csv"), index=False)
         print(f" [OK] Fichiers créés : train.csv et test.csv dans {save_dir}")
-
+        
     return train_df, test_df
 
-def get_D_tensor(df, entree, device='cpu'):
-    """ Calcule et formate le tenseur de pression dynamique D """
-    from core.physics import compute_dynamic_pressure_D
-    df_calc = df.copy()
-    if 'TSR' not in df_calc.columns: 
-        df_calc['TSR'] = 8.0
-        
-    df_calc['D'] = compute_dynamic_pressure_D(df_calc)
-    
-    D_list = []
-    grouped = df_calc.groupby(['yaw', 'TSR'])
-    
-    if entree == 'GV':
-        for _, group in grouped:
-            group = group.sort_values(['theta', 'r'])
-            D_flat = np.repeat(group['D'].values, 2)
-            D_list.append(D_flat)
-            
-    elif entree == 'GM':
-        r_uniques = np.sort(df_calc['r'].unique())
-        theta_uniques = np.sort(df_calc['theta'].unique())
-        for _, group in grouped:
-            group = group.sort_values(['r', 'theta'])
-            d_val = group['D'].values.reshape(len(r_uniques), len(theta_uniques))
-            d_tensor_img = np.stack([d_val, d_val])
-            D_list.append(d_tensor_img)
-            
-    return torch.tensor(np.array(D_list), dtype=torch.float32, device=device)
+class IsotropicScaler:
+    """ Scaler global qui divise par l'écart-type de la Norme. """
+    def __init__(self):
+        self.scale_ = 1.0
+    def fit(self, X):
+        self.scale_ = np.std(X)
+        return self
+    def transform(self, X):
+        return X / self.scale_
+    def inverse_transform(self, X):
+        return X * self.scale_
 
-def get_V_app_tensor(df, entree, device='cpu'):
-    """ Calcule et formate la vitesse apparente V_app pour l'évaluation """
-    from core.physics import compute_V_app
-    df_calc = df.copy()
+def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
+    """
+    Formatte les entrées X et les cibles Y.
+    - residuelle '0' : Y = SVEN, X = scalaires
+    - residuelle '1' : Y = SVEN - BEM, X = scalaires
+    - residuelle '2' (ou '2+') : Y = SVEN, X = scalaires + matrice BEM
+    """
+    res_str = str(residuelle).replace('+', '') # On extrait le chiffre pur (0, 1 ou 2)
+    has_plus = '+' in str(residuelle)
     
-    df_calc['V_app'] = compute_V_app(df_calc)
-    
-    V_app_list = []
-    grouped = df_calc.groupby(['yaw', 'TSR'])
-    
-    if entree == 'GV':
-        for _, group in grouped:
-            group = group.sort_values(['theta', 'r'])
-            V_flat = group['V_app'].values 
-            V_app_list.append(V_flat)
-    elif entree == 'GM':
-        r_uniques = np.sort(df_calc['r'].unique())
-        theta_uniques = np.sort(df_calc['theta'].unique())
-        for _, group in grouped:
-            group = group.sort_values(['r', 'theta'])
-            v_val = group['V_app'].values.reshape(len(r_uniques), len(theta_uniques))
-            V_app_list.append(v_val)
-            
-    return torch.tensor(np.array(V_app_list), dtype=torch.float32, device=device)
+    X_list = []
+    Y_list = []
+    geom = get_geometry()
 
-def format_data(df, entree, res, inter, is_train, device='cpu', omega=OMEGA, R_rotor=R_ROTOR):
-    res_str = str(res)
-    df_work = df.copy()
-    if 'TSR' not in df_work.columns:
-        df_work['TSR'] = 8.0
-    
-    # =========================================================================
-    # NORMALISATION PHYSIQUE DES CIBLES (INTERMÉDIAIRES 'f' ou 'v')
-    # =========================================================================
-    if inter == 'f': 
-        from core.physics import compute_dynamic_pressure_D
-        D = compute_dynamic_pressure_D(df_work)
-        cols_sven, cols_bem = ['Fn_SVEN', 'Ft_SVEN'], ['Fn_BEM', 'Ft_BEM']
+    for _, group in df.groupby(['yaw', 'TSR'] if 'TSR' in df.columns else 'yaw'):
         
-        # Passage aux coefficients adimensionnels Fn/D et Ft/D
-        for col in cols_sven + cols_bem:
-            df_work[col] = df_work[col] / D
-            
-    elif inter == 'v': 
-        from core.physics import compute_V_app
-        
-        # On récupère V_app
-        V_app = compute_V_app(df_work)
-        
-        # Transformation SVEN : Polaire -> Cartésien
-        alpha_sven_rad = np.radians(df_work['alpha_SVEN'].values)
-        df_work['an_SVEN'] = np.sin(alpha_sven_rad) * df_work['V_eff_SVEN'].values / V_app
-        df_work['at_SVEN'] = np.cos(alpha_sven_rad) * df_work['V_eff_SVEN'].values / V_app
-        
-        # Transformation BEM : Polaire -> Cartésien
-        alpha_bem_rad = np.radians(df_work['alpha_BEM'].values)
-        df_work['an_BEM'] = np.sin(alpha_bem_rad) * df_work['V_eff_BEM'].values / V_app
-        df_work['at_BEM'] = np.cos(alpha_bem_rad) * df_work['V_eff_BEM'].values / V_app
-        
-        cols_sven = ['an_SVEN', 'at_SVEN']
-        cols_bem = ['an_BEM', 'at_BEM']
-
-    # =========================================================================
-    # MISE EN FORME DES AXES POUR LES STRATÉGIES 'GV' OU 'GM'
-    # =========================================================================
-    if entree == 'GV': 
-        grouped = df_work.groupby(['yaw', 'TSR'])
-        X_list, Y_list = [], []
-        
-        for (y_val, tsr_val), group in grouped:
+        # =====================================================================
+        # STRATÉGIE GLOBALE VECTORIELLE (GV)
+        # =====================================================================
+        if entree == 'GV':
             group = group.sort_values(['theta', 'r'])
-            y_sven = group[cols_sven].values.flatten()
-            y_bem = group[cols_bem].values.flatten()
             
-            if res_str == '1':
-                Y_val = y_sven - y_bem
-                X_val = np.concatenate(([y_val, tsr_val], y_bem)) 
-            elif res_str == '2': #Entrées BEM completes mais cibles SVEN pures
-                Y_val = y_sven
-                X_val = np.concatenate(([y_val, tsr_val], y_bem))
-            else: # '0'
-                Y_val = y_sven
-                X_val = np.array([y_val, tsr_val])
+            # --- Création de l'Entrée X ---
+            x_val = [group['yaw'].iloc[0]]
+            if 'TSR' in group.columns: 
+                x_val.append(group['TSR'].iloc[0])
                 
-            X_list.append(X_val)
-            Y_list.append(Y_val)
-        X_np, Y_np = np.array(X_list), np.array(Y_list)
+            # Si mode '1' ou '2' ou '1+' ou '2+', on intègre l'information BEM dans X
+            if res_str in ['1', '2'] or has_plus:
+                if inter == 'f':
+                    x_val.extend(group['Fn_BEM'].values)
+                    x_val.extend(group['Ft_BEM'].values)
+                else: # 'v'
+                    v_app_b = compute_V_app(group)
+                    alpha_bem_rad = np.radians(group['alpha_BEM'])
+                    an_bem = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
+                    at_bem = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
+                    x_val.extend(an_bem)
+                    x_val.extend(at_bem)
+            X_list.append(x_val)
+            
+            # --- Création de la Cible Y ---
+            if inter == 'f':
+                c1, c2 = ('Fn_SVEN', 'Ft_SVEN') if res_str in ['0', '2'] else ('Fn_delta', 'Ft_delta')
+                if res_str == '1' and 'Fn_delta' not in group.columns:
+                    group['Fn_delta'] = group['Fn_SVEN'] - group['Fn_BEM']
+                    group['Ft_delta'] = group['Ft_SVEN'] - group['Ft_BEM']
+            else: # 'v'
+                c1, c2 = ('an_SVEN', 'at_SVEN') if res_str in ['0', '2'] else ('an_delta', 'at_delta')
+                if 'an_SVEN' not in group.columns:
+                    v_app = compute_V_app(group)
+                    alpha_sven_rad = np.radians(group['alpha_SVEN'])
+                    group['an_SVEN'] = np.sin(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
+                    group['at_SVEN'] = np.cos(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
+                    if res_str == '1':
+                        alpha_bem_rad = np.radians(group['alpha_BEM'])
+                        group['an_BEM'] = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app
+                        group['at_BEM'] = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app
+                        group['an_delta'] = group['an_SVEN'] - group['an_BEM']
+                        group['at_delta'] = group['at_SVEN'] - group['at_BEM']
+            
+            y_val = []
+            for _, row in group.iterrows():
+                # Si inter=='f', on adimensionne TOUJOURS par D, quel que soit le mode
+                if inter == 'f':
+                    v_app_sq = row['v_app']**2 if 'v_app' in row else compute_V_app(pd.DataFrame([row]))[0]**2
+                    chord_val = geom.get_chord(row['r'])
+                    D = 0.5 * RHO * v_app_sq * np.abs(chord_val)
+                    y_val.extend([row[c1] / D, row[c2] / D])
+                else:
+                    y_val.extend([row[c1], row[c2]])
+            Y_list.append(y_val)
 
-    elif entree == 'GM':
-        grouped = df_work.groupby(['yaw', 'TSR'])
-        X_list, Y_list = [], []
-        
-        r_uniques = np.sort(df_work['r'].unique())
-        theta_uniques = np.sort(df_work['theta'].unique())
-        
-        for (y_val, tsr_val), group in grouped:
+        # =====================================================================
+        # STRATÉGIE GLOBALE MATRICIELLE (GM)
+        # =====================================================================
+        elif entree == 'GM':
             group = group.sort_values(['r', 'theta'])
+            num_r = len(group['r'].unique())
+            num_theta = len(group['theta'].unique())
             
-            y_sven = group[cols_sven].values.reshape(len(r_uniques), len(theta_uniques), 2).transpose(2, 0, 1)
-            y_bem = group[cols_bem].values.reshape(len(r_uniques), len(theta_uniques), 2).transpose(2, 0, 1)
+            r_grid = group['r'].values.reshape(num_r, num_theta)
+            theta_grid = group['theta'].values.reshape(num_r, num_theta)
+            v_app_grid = compute_V_app(group).reshape(num_r, num_theta)
+            yaw_grid = np.full_like(r_grid, group['yaw'].iloc[0])
             
-            yaw_channel = np.full((len(r_uniques), len(theta_uniques)), y_val)
-            tsr_channel = np.full((len(r_uniques), len(theta_uniques)), tsr_val)
-            
-            if res_str == '1':
-                Y_val = y_sven - y_bem
-                X_val = np.stack([y_bem[0], y_bem[1], yaw_channel, tsr_channel])
-            elif res_str == '2': # Image BEM complète en entrée, cible SVEN pure
-                Y_val = y_sven
-                X_val = np.stack([y_bem[0], y_bem[1], yaw_channel, tsr_channel])
-            else: # '0'
-                Y_val = y_sven
-                R_grid, Theta_grid = np.meshgrid(r_uniques, theta_uniques, indexing='ij')
-                X_val = np.stack([yaw_channel, tsr_channel, R_grid, Theta_grid])
+            # --- Création de l'Entrée X ---
+            x_channels = [r_grid, theta_grid, v_app_grid, yaw_grid]
+            if 'TSR' in group.columns:
+                tsr_grid = np.full_like(r_grid, group['TSR'].iloc[0])
+                x_channels.append(tsr_grid)
                 
-            X_list.append(X_val)
-            Y_list.append(Y_val)
-            
-        X_np, Y_np = np.array(X_list), np.array(Y_list)
+            # Ajout des canaux BEM si mode 1 ou 2 ou 2+
+            if res_str in ['1', '2'] or has_plus:
+                if inter == 'f':
+                    x_channels.append(group['Fn_BEM'].values.reshape(num_r, num_theta))
+                    x_channels.append(group['Ft_BEM'].values.reshape(num_r, num_theta))
+                else:
+                    v_app_b = compute_V_app(group)
+                    alpha_bem_rad = np.radians(group['alpha_BEM'])
+                    an_bem = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
+                    at_bem = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
+                    x_channels.append(an_bem.values.reshape(num_r, num_theta))
+                    x_channels.append(at_bem.values.reshape(num_r, num_theta))
+                    
+            X_list.append(np.stack(x_channels, axis=0))
 
-    else:
-        raise ValueError(f"Stratégie '{entree}' non reconnue. Utilisez 'GV' ou 'GM'.")
+            # --- Création de la Cible Y ---
+            if inter == 'f':
+                c1, c2 = ('Fn_SVEN', 'Ft_SVEN') if res_str in ['0', '2'] else ('Fn_delta', 'Ft_delta')
+                if res_str == '1' and 'Fn_delta' not in group.columns:
+                    group['Fn_delta'] = group['Fn_SVEN'] - group['Fn_BEM']
+                    group['Ft_delta'] = group['Ft_SVEN'] - group['Ft_BEM']
+                
+                v_app_sq = v_app_grid**2
+                chord_grid = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
+                D_grid = 0.5 * RHO * v_app_sq * np.abs(chord_grid)
+                
+                y1 = group[c1].values.reshape(num_r, num_theta) / D_grid
+                y2 = group[c2].values.reshape(num_r, num_theta) / D_grid
+                
+            else: # 'v'
+                c1, c2 = ('an_SVEN', 'at_SVEN') if res_str in ['0', '2'] else ('an_delta', 'at_delta')
+                if 'an_SVEN' not in group.columns:
+                    v_app = compute_V_app(group)
+                    alpha_sven_rad = np.radians(group['alpha_SVEN'])
+                    group['an_SVEN'] = np.sin(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
+                    group['at_SVEN'] = np.cos(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
+                    if res_str == '1':
+                        alpha_bem_rad = np.radians(group['alpha_BEM'])
+                        group['an_BEM'] = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app
+                        group['at_BEM'] = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app
+                        group['an_delta'] = group['an_SVEN'] - group['an_BEM']
+                        group['at_delta'] = group['at_SVEN'] - group['at_BEM']
+                        
+                y1 = group[c1].values.reshape(num_r, num_theta)
+                y2 = group[c2].values.reshape(num_r, num_theta)
+                
+            Y_list.append(np.stack([y1, y2], axis=0))
+
+    X_np = np.array(X_list, dtype=np.float32)
+    Y_np = np.array(Y_list, dtype=np.float32)
 
     # =========================================================================
-    # NORMALISATION STATISTIQUE (STANDARD SCALER POUR X ET POUR Y)
+    # APPLICATION DES SCALERS
     # =========================================================================
-    model_name = f"{entree}_{res_str}_{inter}"
+    model_name = f"{entree}_{residuelle}_{inter}"
     os.makedirs("training/scalers", exist_ok=True)
     path_x = f"training/scalers/scaler_X_{model_name}.pkl"
     path_y = f"training/scalers/scaler_Y_{model_name}.pkl"    
@@ -200,29 +206,63 @@ def format_data(df, entree, res, inter, is_train, device='cpu', omega=OMEGA, R_r
         Y_np = Y_np.reshape(Y_np.shape[0], -1)
 
     if is_train:
-        # Scaler pour X
+        # Scaler classique pour X
         scaler_X = StandardScaler()
         X_scaled = scaler_X.fit_transform(X_np)
-        with open(path_x, 'wb') as f: 
-            pickle.dump(scaler_X, f)
+        with open(path_x, 'wb') as f: pickle.dump(scaler_X, f)
         
-        # Scaler pour Y (strat 'f' et strat 'v')
+        # Scaler classique pour la cible (Y) : standardise F_n/D, F_t/D ou a_n, a_t.
         scaler_Y = StandardScaler()
         Y_scaled = scaler_Y.fit_transform(Y_np)
-        with open(path_y, 'wb') as f: 
-            pickle.dump(scaler_Y, f)
-            
+        with open(path_y, 'wb') as f: pickle.dump(scaler_Y, f)
+
     else:
-        with open(path_x, 'rb') as f: 
-            scaler_X = pickle.load(f)
+        with open(path_x, 'rb') as f: scaler_X = pickle.load(f)
+        with open(path_y, 'rb') as f: scaler_Y = pickle.load(f)
         X_scaled = scaler_X.transform(X_np)
-        
-        with open(path_y, 'rb') as f: 
-            scaler_Y = pickle.load(f)
         Y_scaled = scaler_Y.transform(Y_np)
 
     if entree == 'GM':
         X_scaled = X_scaled.reshape(original_shape_X)
         Y_scaled = Y_scaled.reshape(original_shape_Y)
 
-    return torch.tensor(X_scaled, dtype=torch.float32, device=device), torch.tensor(Y_scaled, dtype=torch.float32, device=device)
+    return torch.tensor(X_scaled, device=device), torch.tensor(Y_scaled, device=device)
+
+def get_D_tensor(df, entree, device='cpu'):
+    geom = get_geometry()
+    D_list = []
+    for _, group in df.groupby(['yaw', 'TSR'] if 'TSR' in df.columns else 'yaw'):
+        if entree == 'GV':
+            group = group.sort_values(['theta', 'r'])
+            D_vals = []
+            for _, row in group.iterrows():
+                v_app_sq = row['v_app']**2 if 'v_app' in row else compute_V_app(pd.DataFrame([row]))[0]**2
+                D = 0.5 * RHO * v_app_sq * np.abs(geom.get_chord(row['r']))
+                D_vals.extend([D, D]) # Dupliqué pour F_n et F_t
+            D_list.append(D_vals)
+        elif entree == 'GM':
+            group = group.sort_values(['r', 'theta'])
+            num_r = len(group['r'].unique())
+            num_theta = len(group['theta'].unique())
+            v_app_grid = compute_V_app(group).reshape(num_r, num_theta)
+            chord_grid = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
+            D_grid = 0.5 * RHO * (v_app_grid**2) * np.abs(chord_grid)
+            D_list.append(D_grid) # Sera redimensionné si besoin
+    D_np = np.array(D_list, dtype=np.float32)
+    return torch.tensor(D_np, device=device)
+
+def get_V_app_tensor(df, entree, device='cpu'):
+    V_list = []
+    for _, group in df.groupby(['yaw', 'TSR'] if 'TSR' in df.columns else 'yaw'):
+        if entree == 'GV':
+            group = group.sort_values(['theta', 'r'])
+            v_app_vals = group['v_app'].values if 'v_app' in group.columns else compute_V_app(group)
+            V_list.append(v_app_vals)
+        elif entree == 'GM':
+            group = group.sort_values(['r', 'theta'])
+            num_r = len(group['r'].unique())
+            num_theta = len(group['theta'].unique())
+            v_app_grid = group['v_app'].values if 'v_app' in group.columns else compute_V_app(group)
+            V_list.append(v_app_grid.reshape(num_r, num_theta))
+    V_np = np.array(V_list, dtype=np.float32)
+    return torch.tensor(V_np, device=device)
