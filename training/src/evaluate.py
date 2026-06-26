@@ -10,7 +10,7 @@ from scipy.stats import wasserstein_distance
 
 from core.models import (TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, 
                          PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, compute_cp_ct_torch)
-from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor
+from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import fit_model, cross_validate
 from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
 from core.config import (EPOCHS_FINAL, CV_SPLITS, RATIO_THRESHOLD, RHO, OMEGA, R_ROTOR, 
@@ -79,6 +79,7 @@ def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
 
 def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    has_plus = '+' in str(residuelle)
     ae_label = "DXY" if has_ae else "D0"
     model_base_name = f"{entree}_{residuelle}_{inter}_{ae_label}_{option}"
     
@@ -161,6 +162,24 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
         current_ae.eval()
     else:
         current_ae = None
+
+    if has_plus and current_ae is not None:
+        n_scalaires = 2 if 'TSR' in df_train.columns else 1
+        with torch.no_grad():
+            Y_bem_train = format_bem_as_Y(df_train, entree, inter, scaler_Y, device)
+            Y_bem_test  = format_bem_as_Y(df_test,  entree, inter, scaler_Y, device)
+            if entree == 'GV':
+                z_bem_train = current_ae.encode(Y_bem_train)
+                z_bem_test  = current_ae.encode(Y_bem_test)
+                X_train = torch.cat([X_train[:, :n_scalaires], z_bem_train], dim=1)
+                X_test  = torch.cat([X_test[:, :n_scalaires],  z_bem_test],  dim=1)
+            else:  # GM : z_BEM broadcasté en canaux constants (N, ae_dim, 36, 72)
+                z_bem_train = current_ae.encode(Y_bem_train)
+                z_bem_test  = current_ae.encode(Y_bem_test)
+                zb_tr = z_bem_train[:, :, None, None].expand(-1, -1, 36, 72).contiguous()
+                zb_te = z_bem_test[:, :, None, None].expand(-1, -1, 36, 72).contiguous()
+                X_train = torch.cat([X_train[:, :-2], zb_tr], dim=1)
+                X_test  = torch.cat([X_test[:, :-2],  zb_te],  dim=1)
 
     def compute_phys_score(model, X_val, Y_val, val_idx, preds_val):
         is_cnn_auto = (Y_val.dim() == 4)

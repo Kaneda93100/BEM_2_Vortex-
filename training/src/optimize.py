@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pickle
 from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, adapt_ae_output_to_target
-from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor
+from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
 from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR
@@ -20,14 +20,19 @@ def get_u_inf_tensor(df, device='cpu'):
 
 def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_name, n_trials=40):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    has_plus = '+' in str(residuelle)
     os.makedirs("training/hyperparametres", exist_ok=True)
-    
+
     X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
     is_cnn = (entree == 'GM')
 
     with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_{inter}.pkl", 'rb') as f:
         scaler_Y = pickle.load(f)
     scaler_Y_torch = TorchScaler(scaler_Y, device)
+
+    # Précalcul du BEM dans l'espace Y (pour encodage dans objective_model si '2+')
+    Y_bem_full = format_bem_as_Y(df_train, entree, inter, scaler_Y, device) if has_plus else None
+    n_scalaires_full = (2 if 'TSR' in df_train.columns else 1) if has_plus else 0
 
     u_inf_full = get_u_inf_tensor(df_train, device)
 
@@ -166,7 +171,20 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
             latent_dim = ae_dim
         else:
             current_ae, latent_dim, ae_nature, ae_dim = None, 0, 'None', 0
-            
+
+        # Encodage BEM dans l'espace latent pour '2+' (même espace entrée/sortie)
+        if has_plus and current_ae is not None:
+            with torch.no_grad():
+                if entree == 'GV':
+                    z_bem = current_ae.encode(Y_bem_full)
+                    X_trial = torch.cat([X_full[:, :n_scalaires_full], z_bem], dim=1)
+                else:  # GM
+                    z_bem = current_ae.encode(Y_bem_full)
+                    zb = z_bem[:, :, None, None].expand(-1, -1, 36, 72).contiguous()
+                    X_trial = torch.cat([X_full[:, :-2], zb], dim=1)
+        else:
+            X_trial = X_full
+
         # --- CONTRAINTE CONVEXE POUR LES LAMBDAS ---
         if inter == 'v':
             u1 = trial.suggest_float('u1', 0, 1)
@@ -181,21 +199,21 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
 
         if entree == 'GV':
             model_class = TurbineMLP
-            model_kwargs = {'input_dim': X_full.shape[1], 'output_dim': latent_dim if has_ae else Y_full.shape[1], 'n_layers': trial.suggest_int('n_layers', MLP_LAYERS_BOUNDS[0], MLP_LAYERS_BOUNDS[1]), 'n_neurons': trial.suggest_categorical('n_neurons', MLP_NEURONS_CHOICES), 'dropout_rate': dropout_rate, 'device': device}
+            model_kwargs = {'input_dim': X_trial.shape[1], 'output_dim': latent_dim if has_ae else Y_full.shape[1], 'n_layers': trial.suggest_int('n_layers', MLP_LAYERS_BOUNDS[0], MLP_LAYERS_BOUNDS[1]), 'n_neurons': trial.suggest_categorical('n_neurons', MLP_NEURONS_CHOICES), 'dropout_rate': dropout_rate, 'device': device}
         else:
             model_class = TurbineCNN
-            model_kwargs = {'in_channels': X_full.shape[1], 'out_channels': latent_dim if has_ae else Y_full.shape[1], 'use_autoencoder': has_ae, 'latent_dim': latent_dim, 'n_layers': trial.suggest_int('n_layers', CNN_LAYERS_BOUNDS[0], CNN_LAYERS_BOUNDS[1]), 'base_filters': trial.suggest_categorical('base_filters', CNN_FILTERS_CHOICES), 'dropout_rate': dropout_rate, 'device': device}
+            model_kwargs = {'in_channels': X_trial.shape[1], 'out_channels': latent_dim if has_ae else Y_full.shape[1], 'use_autoencoder': has_ae, 'latent_dim': latent_dim, 'n_layers': trial.suggest_int('n_layers', CNN_LAYERS_BOUNDS[0], CNN_LAYERS_BOUNDS[1]), 'base_filters': trial.suggest_categorical('base_filters', CNN_FILTERS_CHOICES), 'dropout_rate': dropout_rate, 'device': device}
 
         def criterion_builder(train_idx=None, val_idx=None):
             return TurbineLoss(
-                inter=inter, loss_type=option, l1=l1, l2=l2, l3=l3, ae_model=current_ae, scaler_Y=scaler_Y, 
-                r_tensor=r_tensor, c_tensor=c_tensor, polar_surrogate=polar_surrogate if inter == 'v' else None, 
+                inter=inter, loss_type=option, l1=l1, l2=l2, l3=l3, ae_model=current_ae, scaler_Y=scaler_Y,
+                r_tensor=r_tensor, c_tensor=c_tensor, polar_surrogate=polar_surrogate if inter == 'v' else None,
                 device=device
             )
 
         metric_fn = lambda m, x, y, idx, p: compute_phys_score(m, x, y, idx, p, current_ae)
         mean_val_loss, mean_custom_score, _ = cross_validate(
-            X_full=X_full, Y_full=Y_full, model_class=model_class, model_kwargs=model_kwargs,
+            X_full=X_trial, Y_full=Y_full, model_class=model_class, model_kwargs=model_kwargs,
             criterion_builder=criterion_builder, epochs=EPOCHS_OPTUNA, lr=lr, n_splits=CV_SPLITS, 
             device=device, inter=inter, v_bem_phys_full=V_BEM_phys_full, D_phys_full=D_full, v_app_full=V_app_full, u_inf_full=u_inf_full,
             compute_metrics_fn=metric_fn, trial=trial

@@ -81,8 +81,11 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
             # Si mode '1' ou '2' ou '1+' ou '2+', on intègre l'information BEM dans X
             if res_str in ['1', '2'] or has_plus:
                 if inter == 'f':
-                    x_val.extend(group['Fn_BEM'].values)
-                    x_val.extend(group['Ft_BEM'].values)
+                    v_app_b = compute_V_app(group)
+                    chord_b = np.array([geom.get_chord(r) for r in group['r'].values])
+                    D_b = 0.5 * RHO * v_app_b**2 * np.abs(chord_b)
+                    x_val.extend(group['Fn_BEM'].values / D_b)
+                    x_val.extend(group['Ft_BEM'].values / D_b)
                 else: # 'v'
                     v_app_b = compute_V_app(group)
                     alpha_bem_rad = np.radians(group['alpha_BEM'])
@@ -146,8 +149,10 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
             # Ajout des canaux BEM si mode 1 ou 2 ou 2+
             if res_str in ['1', '2'] or has_plus:
                 if inter == 'f':
-                    x_channels.append(group['Fn_BEM'].values.reshape(num_r, num_theta))
-                    x_channels.append(group['Ft_BEM'].values.reshape(num_r, num_theta))
+                    chord_grid_x = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
+                    D_grid_x = 0.5 * RHO * v_app_grid**2 * np.abs(chord_grid_x)
+                    x_channels.append(group['Fn_BEM'].values.reshape(num_r, num_theta) / D_grid_x)
+                    x_channels.append(group['Ft_BEM'].values.reshape(num_r, num_theta) / D_grid_x)
                 else:
                     v_app_b = compute_V_app(group)
                     alpha_bem_rad = np.radians(group['alpha_BEM'])
@@ -231,6 +236,60 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
         Y_scaled = Y_scaled.reshape(original_shape_Y)
 
     return torch.tensor(X_scaled, device=device), torch.tensor(Y_scaled, device=device)
+
+def format_bem_as_Y(df, entree, inter, scaler_Y, device='cpu'):
+    """
+    Retourne les forces BEM dans le même espace de normalisation que Y,
+    pour permettre leur encodage via l'AE SVEN (stratégie '2+').
+    - GV : (N, 5184) — même format interleaved que Y
+    - GM : (N, 2, 36, 72) — même format 2-canaux que Y
+    """
+    geom = get_geometry()
+    Y_bem_list = []
+
+    for _, group in df.groupby(['yaw', 'TSR'] if 'TSR' in df.columns else 'yaw'):
+        if entree == 'GV':
+            group = group.sort_values(['theta', 'r'])
+            y_val = []
+            if inter == 'f':
+                for _, row in group.iterrows():
+                    v_app_sq = row['v_app']**2 if 'v_app' in row else compute_V_app(pd.DataFrame([row]))[0]**2
+                    D = 0.5 * RHO * v_app_sq * np.abs(geom.get_chord(row['r']))
+                    y_val.extend([row['Fn_BEM'] / D, row['Ft_BEM'] / D])
+            else:  # inter == 'v'
+                v_app_b = compute_V_app(group)
+                alpha_bem_rad = np.radians(group['alpha_BEM'].values)
+                an_bem = np.sin(alpha_bem_rad) * group['V_eff_BEM'].values / v_app_b
+                at_bem = np.cos(alpha_bem_rad) * group['V_eff_BEM'].values / v_app_b
+                for an, at in zip(an_bem, at_bem):
+                    y_val.extend([an, at])
+            Y_bem_list.append(y_val)
+
+        elif entree == 'GM':
+            group = group.sort_values(['r', 'theta'])
+            num_r = len(group['r'].unique())
+            num_theta = len(group['theta'].unique())
+            if inter == 'f':
+                v_app_grid = compute_V_app(group).reshape(num_r, num_theta)
+                chord_grid = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
+                D_grid = 0.5 * RHO * v_app_grid**2 * np.abs(chord_grid)
+                y1 = group['Fn_BEM'].values.reshape(num_r, num_theta) / D_grid
+                y2 = group['Ft_BEM'].values.reshape(num_r, num_theta) / D_grid
+            else:  # inter == 'v'
+                v_app_grid = compute_V_app(group).reshape(num_r, num_theta)
+                alpha_bem_rad = np.radians(group['alpha_BEM'].values.reshape(num_r, num_theta))
+                y1 = np.sin(alpha_bem_rad) * group['V_eff_BEM'].values.reshape(num_r, num_theta) / v_app_grid
+                y2 = np.cos(alpha_bem_rad) * group['V_eff_BEM'].values.reshape(num_r, num_theta) / v_app_grid
+            Y_bem_list.append(np.stack([y1, y2], axis=0))
+
+    Y_bem_np = np.array(Y_bem_list, dtype=np.float32)
+    original_shape = Y_bem_np.shape
+    Y_bem_flat = Y_bem_np.reshape(len(Y_bem_list), -1)
+    Y_bem_scaled = scaler_Y.transform(Y_bem_flat)
+    if entree == 'GM':
+        Y_bem_scaled = Y_bem_scaled.reshape(original_shape)
+
+    return torch.tensor(Y_bem_scaled, dtype=torch.float32, device=device)
 
 def get_D_tensor(df, entree, device='cpu'):
     geom = get_geometry()
