@@ -2,11 +2,13 @@ import os
 import json
 import pickle
 import copy
+import time
 import torch
 import torch.nn as nn
 import pandas as pd
 import numpy as np
 from scipy.stats import wasserstein_distance
+from tqdm import tqdm
 
 from core.models import (TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, 
                          PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, compute_cp_ct_torch)
@@ -103,6 +105,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     print(f" ÉVALUATION : {final_model_name}")
     print(f"{'='*50}")
 
+    pbar = tqdm(total=5, desc="  Progression", bar_format="  {desc} |{bar}| {n}/{total} [{elapsed}]", leave=True)
+
+    # ── Étape 1 : Préparation des données ──────────────────────────────────
+    t0 = time.perf_counter()
     X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
     X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
 
@@ -116,7 +122,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     V_app_full_train = None
     D_train_full = None
     u_inf_full = get_u_inf_tensor(df_train, device)
-    
+
     geom = get_geometry()
     if is_cnn:
         r_uniques = np.sort(df_train['r'].unique())
@@ -181,6 +187,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
                 X_train = torch.cat([X_train[:, :-2], zb_tr], dim=1)
                 X_test  = torch.cat([X_test[:, :-2],  zb_te],  dim=1)
 
+    pbar.set_postfix_str(f"Données & AE : {time.perf_counter()-t0:.1f}s")
+    pbar.update(1)
+
     def compute_phys_score(model, X_val, Y_val, val_idx, preds_val):
         is_cnn_auto = (Y_val.dim() == 4)
         preds_norm = current_ae.decode(preds_val) if has_ae else preds_val
@@ -229,7 +238,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
         elif option == 'B':
             return ((torch.sqrt(torch.mean((Fn_p_norm - Fn_t_norm)**2)) + torch.sqrt(torch.mean((Ft_p_norm - Ft_t_norm)**2))) * 100).item()
 
-    print(f"   [1/2] Cross-Validation ({CV_SPLITS} Folds)...")
+    # ── Étape 2 : Cross-validation ─────────────────────────────────────────
+    t0 = time.perf_counter()
+    tqdm.write(f"   [1/2] Cross-Validation ({CV_SPLITS} Folds)...")
     model_class = TurbineMLP if entree == 'GV' else TurbineCNN
     target_dim = current_ae.encoder_fc.out_features if has_ae and hasattr(current_ae, 'encoder_fc') else ae_dim if has_ae else Y_train.shape[1]
     model_kwargs = {'input_dim': X_train.shape[1], 'output_dim': target_dim, 'n_layers': best_params['n_layers'], 'n_neurons': best_params['n_neurons'], 'dropout_rate': best_params['dropout_rate'], 'device': device} if entree == 'GV' else {'in_channels': X_train.shape[1], 'out_channels': target_dim, 'use_autoencoder': has_ae, 'latent_dim': ae_dim, 'n_layers': best_params['n_layers'], 'base_filters': best_params['base_filters'], 'dropout_rate': best_params['dropout_rate'], 'device': device}
@@ -238,14 +249,22 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
         return TurbineLoss(inter=inter, loss_type=option, l1=l1, l2=l2, l3=l3, ae_model=current_ae, scaler_Y=scaler_Y, r_tensor=r_tensor, c_tensor=c_tensor, polar_surrogate=polar_surrogate if inter == 'v' else None, device=device)
 
     mean_cv_loss, mean_cv_score, std_cv_score = cross_validate(X_full=X_train, Y_full=Y_train, model_class=model_class, model_kwargs=model_kwargs, criterion_builder=criterion_builder, epochs=EPOCHS_FINAL, lr=best_params['lr'], n_splits=CV_SPLITS, device=device, inter=inter, v_bem_phys_full=V_BEM_phys_train, D_phys_full=D_train_full, v_app_full=V_app_full_train, u_inf_full=u_inf_full, compute_metrics_fn=compute_phys_score)
+    pbar.set_postfix_str(f"CV : {time.perf_counter()-t0:.1f}s")
+    pbar.update(1)
 
-    print(f"   [2/2] Entraînement Final...")
+    # ── Étape 3 : Entraînement final ───────────────────────────────────────
+    t0 = time.perf_counter()
+    tqdm.write(f"   [2/2] Entraînement Final...")
     model_final = model_class(**model_kwargs).to(device)
     model_final, _ = fit_model(model=model_final, X=X_train, Y=Y_train, criterion=criterion_builder(None,None), epochs=EPOCHS_FINAL, lr=best_params['lr'], device=device, inter=inter, v_bem_phys=V_BEM_phys_train, D_phys=D_train_full, v_app=V_app_full_train, u_inf=u_inf_full, show_progress=False)
+    pbar.set_postfix_str(f"Train : {time.perf_counter()-t0:.1f}s")
+    pbar.update(1)
 
     model_final.eval()
     if current_ae: current_ae.eval()
 
+    # ── Étape 4 : Inférence sur le jeu de test ─────────────────────────────
+    t0 = time.perf_counter()
     with torch.no_grad():
         preds_raw = model_final(X_test)
         preds_norm = current_ae.decode(preds_raw) if has_ae else preds_raw
@@ -276,7 +295,11 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
             D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1)
             preds_denorm = preds_coeffs * D_test_flat
         df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
+    pbar.set_postfix_str(f"Inférence : {time.perf_counter()-t0:.1f}s")
+    pbar.update(1)
 
+    # ── Étape 5 : Métriques & sauvegarde ──────────────────────────────────
+    t0 = time.perf_counter()
     cp_ct_pred = compute_cp(df_res, 'Fn_pred', 'Ft_pred').set_index('yaw')
     df_res['Cp_pred'] = df_res['yaw'].map(cp_ct_pred['Cp_pred']).values
     df_res['Ct_pred'] = df_res['yaw'].map(cp_ct_pred['Ct_pred']).values
@@ -326,6 +349,9 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     save_to_xlsx(XLSX_PATH, "recap_C_P", {"Modele": final_model_name, "err_abs": round(m_g, 6), "err_%": round(m_i, 2), "WD_Cp": round(wd_cp, 6)})
     save_to_xlsx(XLSX_PATH, "recap_C_T", {"Modele": final_model_name, "err_abs": round(m_h, 6), "err_%": round(m_j, 2), "WD_Ct": round(wd_ct, 6)})
     save_to_xlsx(XLSX_PATH, "recap_globaux", {"Modele": final_model_name, "Score_A": round(Score_A, 2), "Score_B": round(Score_B, 2), "Score_C": round(Score_C, 2), "WD_Total": round(wd_total, 4)})
+    pbar.set_postfix_str(f"Métriques : {time.perf_counter()-t0:.1f}s")
+    pbar.update(1)
+    pbar.close()
 
 def evaluate_baselines(df_test):
     df_bem = df_test.copy()

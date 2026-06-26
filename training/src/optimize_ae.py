@@ -133,7 +133,7 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
     pruner = optuna.pruners.MedianPruner(n_warmup_steps=10)
     study_ae = optuna.create_study(direction='minimize', pruner=pruner)
     print(f"   [1/2] Recherche Optuna pour l'architecture AE ({n_trials} trials)...")
-    study_ae.optimize(objective_ae, n_trials=n_trials, show_progress_bar=False)
+    study_ae.optimize(objective_ae, n_trials=n_trials, show_progress_bar=True)
 
     best_ae_params = study_ae.best_params
     best_ae_params.update({'use_autoencoder': True, 'latent_dim': latent_dim})

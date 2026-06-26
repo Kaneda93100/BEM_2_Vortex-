@@ -23,7 +23,9 @@ def main():
     residuelles_ae = ['0', '1', '2']
     
     for r, i, nature, dim in itertools.product(residuelles_ae, INTERMS, AE_NATURES, AE_DIMS):
+        t0 = time.perf_counter()
         optimize_and_train_ae(df_train, residuelle=r, inter=i, latent_dim=dim, ae_nature=nature, n_trials=TRIALS_AE)
+        print(f"   [CHRONO] AE {r}_{i}_D{nature}{dim} : {time.perf_counter()-t0:.1f}s")
 
       # 2. PLAN D'EXPÉRIENCES (14 MODÈLES CIBLÉS)
 
@@ -75,9 +77,13 @@ def main():
         
         n_trials_current = TRIALS_GV if e == 'GV' else TRIALS_GM
         
+        t0 = time.perf_counter()
         optimize(df_train, entree=e, residuelle=r, inter=i, has_ae=has_ae, option=opt, model_base_name=model_base_name, n_trials=n_trials_current)
-        
+        print(f"   [CHRONO] optimize {model_base_name} : {time.perf_counter()-t0:.1f}s")
+
+        t0 = time.perf_counter()
         evaluator(df_train, df_test, entree=e, residuelle=r, inter=i, has_ae=has_ae, option=opt)
+        print(f"   [CHRONO] evaluator {model_base_name} : {time.perf_counter()-t0:.1f}s")
 
 if __name__ == "__main__":
     main()
