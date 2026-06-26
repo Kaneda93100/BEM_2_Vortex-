@@ -366,7 +366,27 @@ def convert_v_to_f_torch(v_eff, alpha_deg, r_tensor, c_tensor, polar_surrogate, 
     return torch.stack([fn, ft], dim=-1)
 
 # =========================================================================
-# 5. NOUVELLE UNIFIED LOSS (A & B)
+# 5. UTILITAIRES DE CONVERSION FORMAT Y (CNN <-> MLP)
+# =========================================================================
+
+def y_to_cnn_format(y: torch.Tensor) -> torch.Tensor:
+    """(N, 5184) -> (N, 2, 36, 72) : format canonique CNN."""
+    return y.reshape(y.size(0), 2, 36, 72)
+
+def y_to_mlp_format(y: torch.Tensor) -> torch.Tensor:
+    """(N, 2, 36, 72) -> (N, 5184) : format canonique MLP."""
+    return y.reshape(y.size(0), -1)
+
+def adapt_ae_output_to_target(decoded: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Adapte la sortie décodée de l'AE au format de la cible Y du modèle prédictif."""
+    if target.dim() == 4 and decoded.dim() == 2:
+        return y_to_cnn_format(decoded)
+    if target.dim() == 2 and decoded.dim() == 4:
+        return y_to_mlp_format(decoded)
+    return decoded
+
+# =========================================================================
+# 6. NOUVELLE UNIFIED LOSS (A & B)
 # =========================================================================
 
 class TurbineLoss(nn.Module):
@@ -394,12 +414,7 @@ class TurbineLoss(nn.Module):
 
         # 1. Décodage AE si nécessaire
         if self.ae_model is not None:
-            preds_norm = self.ae_model.decode(preds_raw)
-            # Reshape dynamique si l'AE n'a pas la même topologie que le modèle principal
-            if not is_cnn_auto and preds_norm.dim() == 4:
-                preds_norm = preds_norm.view(preds_norm.size(0), -1)
-            elif is_cnn_auto and preds_norm.dim() == 2:
-                preds_norm = preds_norm.view(preds_norm.size(0), 2, 36, 72)
+            preds_norm = adapt_ae_output_to_target(self.ae_model.decode(preds_raw), Y_true_norm)
         else:
             preds_norm = preds_raw
             

@@ -5,7 +5,7 @@ from training.src.data_loader import load_clean_data, get_splits
 from training.src.optimize_ae import optimize_and_train_ae
 from training.src.optimize import optimize
 from training.src.evaluate import evaluator, evaluate_baselines
-from core.config import ENTREES, RESIDUELLES, INTERMS, OPTIONS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRIALS_GM
+from core.config import INTERMS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRIALS_GM
 
 def main():
     os.makedirs("training/performance", exist_ok=True)
@@ -22,8 +22,8 @@ def main():
     
     residuelles_ae = ['0', '1', '2']
     
-    for e, r, i, nature, dim in itertools.product(ENTREES, residuelles_ae, INTERMS, AE_NATURES, AE_DIMS):
-        optimize_and_train_ae(df_train, entree=e, residuelle=r, inter=i, latent_dim=dim, ae_nature=nature, n_trials=TRIALS_AE)
+    for r, i, nature, dim in itertools.product(residuelles_ae, INTERMS, AE_NATURES, AE_DIMS):
+        optimize_and_train_ae(df_train, residuelle=r, inter=i, latent_dim=dim, ae_nature=nature, n_trials=TRIALS_AE)
 
       # 2. PLAN D'EXPÉRIENCES (14 MODÈLES CIBLÉS)
 

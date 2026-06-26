@@ -4,7 +4,7 @@ import torch
 import os
 import numpy as np
 import pickle
-from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, adapt_ae_output_to_target
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
@@ -87,10 +87,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
 
     # --- MÉTRIQUES PHYSIQUES ---
     def compute_phys_score(model, X_val, Y_val, val_idx, preds_val, current_ae=None):
-        preds_norm = current_ae.decode(preds_val) if current_ae is not None else preds_val
-        if current_ae is not None:
-             if len(Y_val.shape) == 2 and len(preds_norm.shape) == 4: preds_norm = preds_norm.view(preds_norm.size(0), -1)
-             elif len(Y_val.shape) == 4 and len(preds_norm.shape) == 2: preds_norm = preds_norm.view(preds_norm.size(0), 2, 36, 72)
+        preds_norm = adapt_ae_output_to_target(current_ae.decode(preds_val), Y_val) if current_ae is not None else preds_val
 
         coeffs_pred = scaler_Y_torch.inverse_transform(preds_norm)
         coeffs_true = scaler_Y_torch.inverse_transform(Y_val)
@@ -161,9 +158,9 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
             ae_nature = trial.suggest_categorical('ae_nature', AE_NATURES)
             ae_dim = trial.suggest_categorical('ae_dim', AE_DIMS)
             res_base = str(residuelle).replace('+', '')
-            ae_key = f"{entree}_{res_base}_{inter}_D{ae_nature}{ae_dim}"
+            ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
             ae_params = all_ae_params[ae_key]
-            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=np.prod(Y_full.shape[1:]), latent_dim=ae_dim, device=device).to(device)
+            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, device=device).to(device)
             current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
             current_ae.eval()
             latent_dim = ae_dim
@@ -223,7 +220,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
     
     if has_ae:
         res_base = str(residuelle).replace('+', '')
-        best_params.update(all_ae_params[f"{entree}_{res_base}_{inter}_D{best_params['ae_nature']}{best_params['ae_dim']}"])
+        best_params.update(all_ae_params[f"{res_base}_{inter}_D{best_params['ae_nature']}{best_params['ae_dim']}"])
         
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
     all_model_params = json.load(open(target_json, "r")) if os.path.exists(target_json) else {}
