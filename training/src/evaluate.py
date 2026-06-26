@@ -10,8 +10,9 @@ import numpy as np
 from scipy.stats import wasserstein_distance
 from tqdm import tqdm
 
-from core.models import (TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, 
-                         PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, compute_cp_ct_torch)
+from core.models import (TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder,
+                         PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, compute_cp_ct_torch,
+                         adapt_ae_output_to_target)
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import fit_model, cross_validate
 from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
@@ -160,10 +161,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
 
     if has_ae:
         res_base = str(residuelle).replace('+', '')
-        ae_key = f"{entree}_{res_base}_{inter}_D{ae_nature}{ae_dim}"
+        ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
         ae_configs = json.load(open(AE_JSON_PATH, "r"))
         ae_config = ae_configs[ae_key]
-        current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=np.prod(Y_train.shape[1:]), latent_dim=ae_dim, device=device).to(device)
+        current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, device=device).to(device)
         current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
         current_ae.eval()
     else:
@@ -192,10 +193,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
 
     def compute_phys_score(model, X_val, Y_val, val_idx, preds_val):
         is_cnn_auto = (Y_val.dim() == 4)
-        preds_norm = current_ae.decode(preds_val) if has_ae else preds_val
-        if has_ae:
-             if not is_cnn_auto and preds_norm.dim() == 4: preds_norm = preds_norm.view(preds_norm.size(0), -1)
-             elif is_cnn_auto and preds_norm.dim() == 2: preds_norm = preds_norm.view(preds_norm.size(0), 2, 36, 72)
+        preds_norm = adapt_ae_output_to_target(current_ae.decode(preds_val), Y_val) if has_ae else preds_val
                  
         coeffs_pred = scaler_Y_torch.inverse_transform(preds_norm)
         coeffs_true = scaler_Y_torch.inverse_transform(Y_val)
@@ -267,11 +265,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     t0 = time.perf_counter()
     with torch.no_grad():
         preds_raw = model_final(X_test)
-        preds_norm = current_ae.decode(preds_raw) if has_ae else preds_raw
-        if has_ae:
-             is_cnn_auto = (Y_test.dim() == 4)
-             if not is_cnn_auto and preds_norm.dim() == 4: preds_norm = preds_norm.view(preds_norm.size(0), -1)
-             elif is_cnn_auto and preds_norm.dim() == 2: preds_norm = preds_norm.view(preds_norm.size(0), 2, 36, 72)
+        preds_norm = adapt_ae_output_to_target(current_ae.decode(preds_raw), Y_test) if has_ae else preds_raw
         preds_coeffs = scaler_Y_torch.inverse_transform(preds_norm).cpu().numpy()
 
     df_test['D_phys'] = compute_dynamic_pressure_D(df_test)
