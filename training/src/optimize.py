@@ -179,7 +179,8 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
                     z_bem = current_ae.encode(Y_bem_full)
                     X_trial = torch.cat([X_full[:, :n_scalaires_full], z_bem], dim=1)
                 else:  # GM
-                    z_bem = current_ae.encode(Y_bem_full)
+                    y_bem_input = Y_bem_full.reshape(Y_bem_full.size(0), -1) if ae_nature == 'V' else Y_bem_full
+                    z_bem = current_ae.encode(y_bem_input)
                     zb = z_bem[:, :, None, None].expand(-1, -1, 36, 72).contiguous()
                     X_trial = torch.cat([X_full[:, :-2], zb], dim=1)
         else:
