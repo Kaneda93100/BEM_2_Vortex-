@@ -181,8 +181,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
                 X_train = torch.cat([X_train[:, :n_scalaires], z_bem_train], dim=1)
                 X_test  = torch.cat([X_test[:, :n_scalaires],  z_bem_test],  dim=1)
             else:  # GM : z_BEM broadcasté en canaux constants (N, ae_dim, 36, 72)
-                z_bem_train = current_ae.encode(Y_bem_train)
-                z_bem_test  = current_ae.encode(Y_bem_test)
+                y_bem_tr = Y_bem_train.reshape(Y_bem_train.size(0), -1) if ae_nature == 'V' else Y_bem_train
+                y_bem_te = Y_bem_test.reshape(Y_bem_test.size(0), -1) if ae_nature == 'V' else Y_bem_test
+                z_bem_train = current_ae.encode(y_bem_tr)
+                z_bem_test  = current_ae.encode(y_bem_te)
                 zb_tr = z_bem_train[:, :, None, None].expand(-1, -1, 36, 72).contiguous()
                 zb_te = z_bem_test[:, :, None, None].expand(-1, -1, 36, 72).contiguous()
                 X_train = torch.cat([X_train[:, :-2], zb_tr], dim=1)
