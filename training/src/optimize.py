@@ -195,8 +195,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
             l1, l2, l3 = u1/s, u2/s, u3/s
         else: # inter == 'f' -> l3 = 0
             u1 = trial.suggest_float('u1', 0, 1)
-            s = u1 + 1e-8
-            l1, l2, l3 = u1/s, 1.0 - u1/s, 0.0
+            l1, l2, l3 = u1, 1.0 - u1, 0.0
 
         if entree == 'GV':
             model_class = TurbineMLP
