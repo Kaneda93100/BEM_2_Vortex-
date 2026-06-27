@@ -21,7 +21,7 @@ def run() :
     df_train, df_val = get_splits(df_full)
     
     evaluate_baseline(df_val)
-    for entree in ['DP' 'GVP'] : #['DP', 'GVP', 'GMP']
+    for entree in ['GMP'] : #['DP', 'GVP', 'GMP']
         for comp in [False] :
             if entree == 'DP' and comp == True :
                 break
