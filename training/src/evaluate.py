@@ -330,14 +330,16 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
 
     BEM_A, BEM_B, BEM_C = calc_scores(df_test['Fn_BEM'].values, df_test['Ft_BEM'].values, df_res.copy())
     ratios = {'A': BEM_A / Score_A if Score_A > 0 else 0, 'B': BEM_B / Score_B if Score_B > 0 else 0, 'C': BEM_C / Score_C if Score_C > 0 else 0}
-    best_metric = max(ratios, key=ratios.get)
-    
-    if ratios[best_metric] > RATIO_THRESHOLD:
+    best_metric_AB = max('A', 'B', key=lambda k: ratios[k])
+    best_ratio_AB = ratios[best_metric_AB]
+    ratio_C = ratios['C']
+
+    if best_ratio_AB > RATIO_THRESHOLD:
         os.makedirs(f"training/models/{entree}", exist_ok=True)
         torch.save(model_final.state_dict(), f"training/models/{entree}/{final_model_name}.pth")
-        print(f"   [SAUVEGARDE] Ratio {ratios[best_metric]:.2f}x > {RATIO_THRESHOLD}.")
-        
-    save_to_xlsx(XLSX_PATH, "recap_details", {"Modele": final_model_name, "Entree": entree, "Residuelle": residuelle, "Inter": inter, "Has_AE": has_ae, "AE_Nature": ae_nature, "AE_Dim": ae_dim, "Option_Loss": option, "L1": round(l1, 2), "L2": round(l2, 2), "L3": round(l3, 2), "Best_Metric": best_metric, "Best_BEM_Ratio": round(ratios[best_metric], 2), "CV_Score": round(mean_cv_score, 2), "CV_Var": round(std_cv_score, 2) if std_cv_score else 0.0})
+        print(f"   [SAUVEGARDE] Ratio AB {best_ratio_AB:.2f}x > {RATIO_THRESHOLD}.")
+
+    save_to_xlsx(XLSX_PATH, "recap_details", {"Modele": final_model_name, "Entree": entree, "Residuelle": residuelle, "Inter": inter, "Has_AE": has_ae, "AE_Nature": ae_nature, "AE_Dim": ae_dim, "Option_Loss": option, "L1": round(l1, 2), "L2": round(l2, 2), "L3": round(l3, 2), "Best_Metric": best_metric_AB, "BEM_Ratio_C": round(ratio_C, 2), "Best_BEM_Ratio_AB": round(best_ratio_AB, 2), "CV_Score": round(mean_cv_score, 2), "CV_Var": round(std_cv_score, 2) if std_cv_score else 0.0})
     save_to_xlsx(XLSX_PATH, "recap_Fn", {"Modele": final_model_name, "err_abs_Nm": round(m_a, 4), "err_rel_%": round(m_c, 2), "err_normD_%": round(m_e, 2), "WD_Fn": round(wd_fn, 4)})
     save_to_xlsx(XLSX_PATH, "recap_Ft", {"Modele": final_model_name, "err_abs_Nm": round(m_b, 4), "err_rel_%": round(m_d, 2), "err_normD_%": round(m_f, 2), "WD_Ft": round(wd_ft, 4)})
     save_to_xlsx(XLSX_PATH, "recap_C_P", {"Modele": final_model_name, "err_abs": round(m_g, 6), "err_%": round(m_i, 2), "WD_Cp": round(wd_cp, 6)})
@@ -372,7 +374,7 @@ def evaluate_baselines(df_test):
     wd_total = wasserstein_distance(np.concatenate([Fn_s, Ft_s]), np.concatenate([Fn_b, Ft_b]))
 
     base_dict = {"Modele": "BASELINE_BEM"}
-    save_to_xlsx(XLSX_PATH, "recap_details", {**base_dict, "Best_BEM_Ratio": 1.00})
+    save_to_xlsx(XLSX_PATH, "recap_details", {**base_dict, "BEM_Ratio_C": 1.00, "Best_BEM_Ratio_AB": 1.00})
     save_to_xlsx(XLSX_PATH, "recap_Fn", {**base_dict, "err_abs_Nm": round(m_a, 4), "err_rel_%": round(m_c, 2), "err_normD_%": round(m_e, 2), "WD_Fn": round(wd_fn, 4)})
     save_to_xlsx(XLSX_PATH, "recap_Ft", {**base_dict, "err_abs_Nm": round(m_b, 4), "err_rel_%": round(m_d, 2), "err_normD_%": round(m_f, 2), "WD_Ft": round(wd_ft, 4)})
     save_to_xlsx(XLSX_PATH, "recap_C_P", {**base_dict, "err_abs": round(m_g, 6), "err_%": round(m_i, 2), "WD_Cp": round(wd_cp, 6)})
