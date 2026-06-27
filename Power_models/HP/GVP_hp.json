@@ -1,0 +1,14 @@
+{
+    "GVP_2_False": {
+        "lr": 4.792930217354088e-07,
+        "n_neurons": 192,
+        "dropout_rate": 0,
+        "n_layers": 4
+    },
+    "GVP_1_False": {
+        "lr": 3.066379218856476e-05,
+        "n_neurons": 128,
+        "dropout_rate": 0,
+        "n_layers": 7
+    }
+}

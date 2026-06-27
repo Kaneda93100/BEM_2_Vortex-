@@ -1,0 +1,8 @@
+{
+    "DP_2_False": {
+        "lr": 4.7321590760483375e-05,
+        "n_neurons": 896,
+        "dropout_rate": 0,
+        "n_layers": 7
+    }
+}

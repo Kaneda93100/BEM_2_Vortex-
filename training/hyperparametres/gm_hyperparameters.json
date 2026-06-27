@@ -47,11 +47,11 @@
     "GM_1_v_D0": {
         "use_autoencoder": false,
         "latent_dim": 0,
-        "lr": 0.0005263972239225398,
-        "dropout_rate": 0.005011406529366685,
-        "n_layers": 2,
-        "base_filters": 64,
-        "Total_Score_CV": 17.48895009358724
+        "lr": 0.0012791057287935153,
+        "dropout_rate": 0.002438274281209819,
+        "n_layers": 3,
+        "base_filters": 32,
+        "Total_Score_CV": 17.776899973551433
     },
     "GM_1_v_D128": {
         "ae_lr": 0.0007983469513189286,

@@ -8,7 +8,22 @@ from training.src.evaluate import evaluator, evaluate_baselines
 from core.config import INTERMS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRIALS_GM
 
 def main():
+<<<<<<< Updated upstream
     os.makedirs("training/performance", exist_ok=True)
+=======
+    # =========================================================================
+    # CONFIGURATION DU TRAVAIL COLLABORATIF (Découpage en 3 Groupes)
+    # =========================================================================
+    # Ces booléens permettent de lancer uniquement la ou les parties souhaitées.
+    
+    RUN_GROUP_1 = False  # Groupe 1 : Tous les GV (MLP)
+    RUN_GROUP_2 = False  # Groupe 2 : Uniquement GM_f (CNN - Forces)
+    RUN_GROUP_3 = True  # Groupe 3 : Uniquement GM_v (CNN - Vitesses)
+
+    global_start = time.time()
+    
+    print("Chargement des données...")
+>>>>>>> Stashed changes
     df_full = load_clean_data()
     df_train, df_test = get_splits(df_full, seed=42)
     

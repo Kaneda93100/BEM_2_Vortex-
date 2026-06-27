@@ -1,7 +1,6 @@
 import sys
 import os
-path = os.path.abspath(os.path.join(os.path.dirname(__file__),".."))
-sys.path.append(path)
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import pathlib as P
 import numpy as np
@@ -67,10 +66,12 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
             Y = P['Cp_BEM'].values - P['Cp_SVEN'].values
         Y = Y.reshape(-1,1)
 
+
     elif entree == 'GVP' :
         df_calc = pd.merge(df, P, on = ['yaw', 'TSR'])
         grand_group = df_calc.groupby(['yaw', 'TSR'])
         X,Y = [],[]
+
         
         for (y_val, tsr_val), group in grand_group :
             power_sven = group['Cp_SVEN'].unique()
@@ -80,7 +81,7 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
             if res == '2' :      ## Features == [yaw, tsr, BEM] | target = [SVEN]
                 X_val = np.concatenate(([y_val, tsr_val], bem_comp))
                 Y_val = power_sven
-            elif res == '1' :
+            elif res == '1' :    ## 
                 X_val =  np.concatenate(([y_val, tsr_val], bem_comp))
                 Y_val = power_bem - power_sven
             elif res == '0' :
@@ -94,12 +95,38 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
             Y.append(Y_val)
         
         X, Y = np.array(X), np.array(Y)
+    
+    elif entree == 'GMP' :
+        df_calc = pd.merge(df, P, on = ['yaw', 'TSR'])
+        grand_group = df_calc.groupby(['yaw', 'TSR'])
+        X,Y = [],[]
+
+        r = np.sort(df_calc['r'].unique())
+        theta = np.sort(df_calc['theta'].unique())
+
+        for (y_val, tsr_val), group in grand_group :
+            group = group.sort_values(['r', 'theta'])
+
+            power_sven = group['Cp_SVEN'].unique()
+            power_bem = group['Cp_BEM'].unique()
+            bem_img = group['Fn_BEM', 'Ft_BEM'].values.reshape(len(r), len(theta),2)
+
+            yaw_channel = np.full((len(r), len(theta)),y_val)
+            tsr_channel = np.full((len(r), len(theta)), tsr_val)
+
+            if res == '2' :
+                Y_val = power_sven
+                X_val = np.stack([bem_img, yaw_channel, tsr_channel])
+            elif res == '1' :
+                Y_val = power_bem - power_sven
+                X_val = np.stack([bem_img, yaw_channel, tsr_channel])
+            else :
+                raise Exception(f"Approche GM sans BEM en entrée non supportée.\n")
 
     ## 2. Normalisation
-
-    model_name = f"{entree}_{res}_pow"
-    os.makedirs("Power_models/scalers", exist_ok=True)
-    path_x, path_y = f"Power_models/Data/DataDir/scalers/scaler_X_{model_name}.pkl", f"Power_models/Data/DataDir/scalers/scaler_Y_{model_name}.pkl"  
+    model_name = f"{entree}_{res}_{comp}"
+    os.makedirs("Power_models/scalers", exist_ok = True)
+    path_x, path_y = f"Power_models/scalers/scaler_X_{model_name}.pkl", f"Power_models/scalers/scaler_Y_{model_name}.pkl"  
     
     if scaler_exist :
         print("\n Des scalers ont été trouvé.\n")
@@ -124,7 +151,7 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
     
     ## 3. Gestion de la compression des efforts BEM
     if entree == 'GVP' :
-        if res == '2' or res == '1' : ## Pas de vecteurs de force dans ce cas
+        if res == '2' or res == '1' : ## Pas de vecteurs de force dans les autres cas
             if comp == True :
                 path_to_comp_params = "Power_models/models/fbem_ae.pth"
                 path_to_comp_hp = "Power_models/HP/fbem_ae.json"
@@ -138,8 +165,7 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
                     raise Exception(f"\nLe fichier contenant les hyperparamètres ou les paramètres du compresseur n'ont pas été trouvé. Lancez la procédure 'optimise_AE' avant.\n")
                 compressor.eval()
                 X_tensor = compressor.encode(X_tensor).detach()
-                
-
+    
     return X_tensor, Y_tensor
 
 def format_f(df, scaler_exist = False) :
@@ -171,7 +197,7 @@ def format_f(df, scaler_exist = False) :
             scaler = pkl.load(f)
         X_scaled = scaler.fit_transform(X_np)
     else :
-        print(f"\nscaler_exist == {scaler_exist}, des scalers vont être calculés et enregistré à l'adresse {path}.\n")
+        print(f"\nscaler_exist == {scaler_exist}, des scalers vont être calculés et enregistré à l'adresse {path_fbem}.\n")
 
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X_np)

@@ -2,11 +2,11 @@
     "GV_0_f_D0": {
         "use_autoencoder": false,
         "latent_dim": 0,
-        "lr": 0.00498553783142031,
-        "dropout_rate": 0.001360142847299521,
+        "lr": 0.004370462130450423,
+        "dropout_rate": 9.777481970437221e-05,
         "n_layers": 2,
-        "n_neurons": 448,
-        "Total_Score_CV": 14.792662938435873
+        "n_neurons": 512,
+        "Total_Score_CV": 14.469064712524414
     },
     "GV_0_f_D32": {
         "ae_lr": 0.004637060960111682,

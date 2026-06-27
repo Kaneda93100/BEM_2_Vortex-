@@ -1,26 +1,30 @@
 import sys
 import os
-path = os.path.abspath(os.path.join(os.path.dirname(__file__),".."))
-sys.path.append(path)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-import pathlib as P
-import numpy as np
-import pandas as pd
-import pickle as pkl
-import json
+
 import torch
 import optuna
+from torch import nn
+import numpy as np
+import pandas as pd
+
+import pathlib as P
+import pickle as pkl
+import json
 
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from Power_models.src.dataloaders import format_data_power, format_f, get_splits
-from Power_models.src.PModels import PowerMLP, ForceEncoder
+from Power_models.src.PModels import PowerMLP, ForceEncoder, PowerCNN, PowerLoss
+from core.models import TorchScaler
+from training.src.data_loader import format_data
 
-def optimize_PM(df_train, entree, res, comp, n_trials) :
+def optimize_PM(df_train, entree, res, comp, crit, n_trials = 50) :
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_name = f'{entree}_{res}'
+    model_name = f'{entree}_{res}_{comp}'
     hp_file_name = model_name
 
     os.makedirs("HP", exist_ok = True)
@@ -32,23 +36,54 @@ def optimize_PM(df_train, entree, res, comp, n_trials) :
     ## 1. Préparation des données
     X_set, Y_set = format_data_power(df_train, entree, res, comp, device = device)
 
+    if entree == 'GVP' :
+        dim_out = X_set.shape[1]-2 # On retire -2 pour ne garder que le champs de force
+    elif entree == 'DP' :
+        dim_out = Y_set.shape[1]
+    
+    ## scaler_scalar
+    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl" ,'rb') as f :
+            scaler_scalar = pkl.load(f)
+            scaler_scalar_torch = TorchScaler(scaler_scalar, device = device)
+    
+    ## scaler_field
+    get_scale = f'scaler_Y_GV_0_f.pkl'
+    try :
+        with open(f"training/scalers/{get_scale}", 'rb') as f :
+            scaler_field = pkl.load(f)
+            scaler_field_torch = TorchScaler(scaler_field, device = device) 
+    except FileNotFoundError :
+        print(f"Le scaler {get_scale} n'a pas été trouvé. Il va être calculé.\n")
+        _,_ = format_data(df_train, entree = 'GV', res = '0', inter = 'f', is_train = True)
+        with open(f"training/scalers/{get_scale}", 'rb') as f :
+            scaler_field = pkl.load(f)
+    finally :
+        scaler_field_torch = TorchScaler(scaler_field, device = device) 
+
     #   -----------------------------------   #
     #   Début fonction objectif pour Optuna   #
     #   -----------------------------------   #
     def objective(trial) :
         lr = trial.suggest_float('lr', 1e-8, 1e-4, log = True)
-        n_neurons = trial.suggest_int('n_neurons', 128, 896, step=64)
         dropout_rate = trial.suggest_int('dropout_rate', 0.0, 0.5)
-        n_layers = trial.suggest_int('n_layers', 2, 8)
-
+    
         kf = KFold(n_splits = 3, shuffle = True, random_state = 42)
         cv_scores = []
-
-        model = PowerMLP(X_set.shape[1], Y_set.shape[1],
-                              n_layers = n_layers, n_neurons = n_neurons,
-                              dropout = dropout_rate, device = device)
+        if entree == 'GV' or entree == 'DP' :
+            n_neurons = trial.suggest_int('n_neurons', 128, 896, step=64)
+            n_layers = trial.suggest_int('n_layers', 2, 8)
+            model = PowerMLP(X_set.shape[1], dim_out,
+                                n_layers = n_layers, n_neurons = n_neurons,
+                                dropout = dropout_rate, device = device)
+            
+        elif entree == 'GMP' : 
+            n_layers = trial.suggest_int('n_layers', 2, 5)
+            base_filters = trial.suggest_int(16,64, step = 8)
+            model = PowerCNN(X_set.shape[1], Y_set.shape[1], n_layers = n_layers, 
+                             dropout_rate = dropout_rate, device = device)
+            
         optimizer = torch.optim.Adam(model.parameters(), lr = lr)
-        crit = torch.nn.MSELoss()
+        loss_func = crit()
         best_val_loss = float('inf')
 
         ## Itérer sur les folds 
@@ -57,25 +92,32 @@ def optimize_PM(df_train, entree, res, comp, n_trials) :
             X_val, Y_val = X_set[val_idx], Y_set[val_idx]
             
             ## Entraînement
-            for epoch in range(2) :
+            for epoch in range(500) :
                 model.train()
                 optimizer.zero_grad()
 
-                loss = crit(model(X_tr), Y_tr)
-                loss.backward(retain_graph = True)
+                if crit == PowerLoss : 
+                    loss = loss_func.forward(scaler_scalar = scaler_scalar_torch, scaler_field = scaler_field_torch, output = model(X_tr), target = Y_tr, res = res, device = device)
+                else :
+                    loss = loss_func(model(X_tr), Y_tr)
+                
+                loss.backward()
                 optimizer.step()
             
                 ## Evaluation
                 model.eval()
                 with torch.no_grad() :
-                    val_loss = crit(model(X_val), Y_val).item()
+                    if crit == PowerLoss : 
+                        val_loss = loss_func.forward(scaler_scalar = scaler_scalar_torch, scaler_field = scaler_field_torch, output = model(X_val), target = Y_val, res = res, device = device).item()
+                    else :
+                        val_loss = loss_func.forward(model(X_val), Y_val).item()
                 
                 if val_loss < best_val_loss :
                     best_val_loss = val_loss
 
             cv_scores.append(best_val_loss)
 
-        return sum(cv_scores)/len(cv_scores) ## Score moyenné par le nombre de trial
+        return sum(cv_scores)/len(cv_scores) 
         #   ---------------------------------   #
         #   Fin fonction objectif pour Optuna   #
         #   ---------------------------------   #
@@ -100,8 +142,7 @@ def optimize_PM(df_train, entree, res, comp, n_trials) :
 
     return    
 
-
-def optimize_AE(df, n_trials, force_opt = False) :
+def optimize_AE(df, n_trials, eps_obj, eps_train, force_opt = True) :
 
     parms_path = "Power_models/models/fbem_ae.pth"
     path_hp = "Power_models/HP/fbem_ae.json"
@@ -121,7 +162,7 @@ def optimize_AE(df, n_trials, force_opt = False) :
     #   -----------------------------------   #
     def objective(trial) :
         lr = trial.suggest_float('lr', 1e-8, 1e-4, log = True)
-        lat_dim  = trial.suggest_int('lat_dim', 16, 512, step = 16)
+        lat_dim  = trial.suggest_int('lat_dim', 4864, 5184, step = 16)
 
         kf = KFold(n_splits = 3, shuffle = True, random_state = 42)
         cv_scores = []
@@ -134,7 +175,7 @@ def optimize_AE(df, n_trials, force_opt = False) :
         for train_idx, val_idx in kf.split(X.cpu().numpy()) :
             X_train, X_val = X[train_idx], X[val_idx]
 
-            for _ in range(2) :
+            for _ in range(eps_obj) :
                 model.train()
                 optimizer.zero_grad()
 
@@ -181,7 +222,7 @@ def optimize_AE(df, n_trials, force_opt = False) :
     crit = torch.nn.MSELoss()
 
     opt_compressor.train()
-    pbar = tqdm(range(750), desc = " Entraînement du compresseur d'efforts BEM", leave = False)
+    pbar = tqdm(range(eps_train), desc = " Entraînement du compresseur d'efforts BEM", leave = False)
     for _ in pbar :
         optimizer.zero_grad()
         loss = crit(opt_compressor(X), X)

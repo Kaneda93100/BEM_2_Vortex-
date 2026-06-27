@@ -38,6 +38,42 @@ class PeriodicPadding2d(nn.Module):
         x = F.pad(x, (self.pad_theta, self.pad_theta, 0, 0), mode='circular')
         return x
 
+<<<<<<< Updated upstream
+=======
+
+class ResBlockPeriodic(nn.Module):
+    """ Bloc Résiduel respectant la périodicité de la grille polaire """
+    def __init__(self, in_channels, out_channels, device='cpu'):
+        super(ResBlockPeriodic, self).__init__()
+        self.pad = PeriodicPadding2d(pad_r=PADDING_R, pad_theta=PADDING_THETA)
+        
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=KERNEL_SIZE, padding=0, device=device)
+        self.bn1 = nn.BatchNorm2d(out_channels, device=device)
+        self.relu = nn.ReLU()
+        
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=KERNEL_SIZE, padding=0, device=device)
+        self.bn2 = nn.BatchNorm2d(out_channels, device=device)
+        
+        self.shortcut = nn.Sequential()
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, device=device),
+                nn.BatchNorm2d(out_channels, device=device)
+            )
+
+    def forward(self, x):
+        residual = self.shortcut(x)
+        out = self.pad(x)
+        out = self.conv1(out)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.pad(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += residual
+        return self.relu(out)
+
+>>>>>>> Stashed changes
 class TurbineCNN(nn.Module):
     """ Stratégie GM : Le réseau global matriciel (CNN) """
     def __init__(self, in_channels, out_channels, use_autoencoder, latent_dim, n_layers, base_filters, dropout_rate, device='cpu'):
@@ -504,8 +540,26 @@ class TurbineLoss(nn.Module):
             Cp_p, Ct_p = compute_cp_ct_torch(Fn_p_abs, Ft_p_abs, self.r_tensor, u_inf, is_cnn_auto)
             Cp_t, Ct_t = compute_cp_ct_torch(Fn_t_abs, Ft_t_abs, self.r_tensor, u_inf, is_cnn_auto)
             
+<<<<<<< Updated upstream
             err_cp = torch.mean(((Cp_p - Cp_t) / torch.abs(Cp_t))**2)
             err_ct = torch.mean(((Ct_p - Ct_t) / torch.abs(Ct_t))**2)
             loss_macro = err_cp + err_ct
 
         return self.l1 * loss_macro + self.l2 * loss_f + self.l3 * loss_v
+=======
+        if is_cnn:
+            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(self.c)
+            D_phys = D_phys.unsqueeze(1) # Image (B, 1, 36, 72) pour broadcaster sur les 2 canaux Fn, Ft
+        else:
+            D_phys = 0.5 * RHO * (v_app_slice**2) * torch.abs(self.c)
+            D_phys = torch.repeat_interleave(D_phys, 2, dim=1) # Vectoriel (B, 5184) alterné pour Fn, Ft
+            
+        # On divise par D avant d'appliquer la standardisation statistique
+        f_pred_norm = self.scaler_f.transform(f_pred_phys / D_phys)
+        f_true_norm = self.scaler_f.transform(f_true_phys / D_phys)
+        # =====================================================================
+        
+        loss_f = self.mse(f_pred_norm, f_true_norm)
+        return (1 - self.lambda_val) * loss_v + self.lambda_val * loss_f
+    
+>>>>>>> Stashed changes

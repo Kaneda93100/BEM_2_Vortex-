@@ -4,7 +4,7 @@ path = os.path.abspath(os.path.join(os.path.dirname(__file__),".."))
 sys.path.append(path)
 
 import json
-import pickle
+import pickle as pkl
 import copy
 import torch
 import torch.nn as nn
@@ -18,14 +18,16 @@ from tqdm import tqdm
 
 from Power_models.src.dataloaders import format_data_power
 from Power_models.src.PModels import PowerMLP
+from Power_models.src.PModels import PowerDensityLoss, PowerLoss
 from core.models import TorchScaler
 from core.physics import compute_cp, convert_v_to_f
 from Power_models.src.dataloaders import convert_f_to_power
+from training.src.data_loader import format_data
 
-def evaluator_power(df_train, df_val, entree, res, comp) :
+def evaluator_power(df_train, df_val, entree, res, comp, crit = nn.MSELoss()) :
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_name = f'{entree}_{res}'
+    model_name = f'{entree}_{res}_{comp}'
     recap_path = 'Power_models/performances/recap_score.csv'
     saved_name = model_name
 
@@ -44,48 +46,75 @@ def evaluator_power(df_train, df_val, entree, res, comp) :
 
     X_train, Y_train = format_data_power(df_train, entree, res, comp, device = device)
     X_val, Y_val     = format_data_power(df_val, entree, res, comp, device = device)
-
-
-    ## Récupérer les puissances de références pour la Cross-Validation
-    _, true_tr = format_data_power(df_train, entree, res = '0', comp = False, scaler_exist = False, device = device)
-    _, pow_sven_val = format_data_power(df_val, entree, res = '0', comp = False, scaler_exist = False, device = device) 
     
-    with open(f'Power_models/Data/DataDir/scalers/scaler_Y_{entree}_0_pow.pkl', 'rb') as f :
-        scaler_Y = pickle.load(f)
-    scaler_TPow_torch = TorchScaler(scaler_Y, device = device)
+    if entree == 'DP' :
+        out_dim = Y_train.shape[1]
+    elif entree == 'GVP' :
+        out_dim = X_train.shape[1]-2
 
-    model = PowerMLP(X_train.shape[1], Y_train.shape[1], 
+    model = PowerMLP(X_train.shape[1], out_dim,
                           n_layers = best_params['n_layers'], n_neurons = best_params['n_neurons'],
-                          dropout = best_params['dropout_rate'], device=device)
-
+                          dropout = best_params['dropout_rate'], device = device)
+    
+    
+    ## Récupérer les puissances de références pour la Cross-Validation
+    _, pow_sven_val = format_data_power(df_val, entree, res = '0', comp = False, scaler_exist = False, device = device) 
+    with open(f'Power_models/scalers/scaler_Y_{entree}_0_False.pkl', 'rb') as f :
+        scaler_Y = pkl.load(f)
+    scaler_TPow_torch = TorchScaler(scaler_Y, device = device)
+        
+    if entree == 'GVP' :
+        ## scaler_scalar
+        with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl" ,'rb') as f :
+                scaler_scalar = pkl.load(f)
+                scaler_scalar_torch = TorchScaler(scaler_scalar, device = device)
+        
+        ## scaler_field
+        get_scale = f'scaler_Y_GV_0_f.pkl' if entree == 'GVP' else None
+        if get_scale != None : 
+            try :
+                with open(f"training/scalers/{get_scale}", 'rb') as f :
+                    scaler_field = pkl.load(f)
+                    scaler_field_torch = TorchScaler(scaler_field, device = device) 
+            except FileNotFoundError :
+                print(f"Le scaler {get_scale} n'a pas été trouvé. Il va être calculé.\n")
+                df = pd.read_csv("data/raw/fichier_forces.csv")
+                _,_ = format_data(df_train, entree = 'GV', res = '0', inter = 'f', is_train = True)
+                with open(f"training/scalers/{get_scale}", 'rb') as f :
+                    scaler_field = pkl.load(f)
+            finally :
+                scaler_field_torch = TorchScaler(scaler_field, device = device) 
+         
     print("\n   [1/2] Lancement de la Cross-Validation (3 Folds x 1000 époques)...")
     n_splits = 3
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    kf = KFold(n_splits = n_splits, shuffle=True, random_state=42)
 
     cv_scores = np.zeros(n_splits)
-    crit = torch.nn.MSELoss()
     
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train.cpu().numpy())) :
         X_tr_cv, Y_tr_cv    = X_train[train_idx], Y_train[train_idx]
         X_val_cv, Y_val_cv  = X_train[val_idx], Y_train[val_idx]
 
         optimizer = torch.optim.Adam(model.parameters(), lr = best_params['lr'])
+        loss_func = crit()
         pbar = tqdm(range(10), desc=f"   -> Fold {fold+1}/{n_splits}", leave=False)
 
         for epoch in pbar :
             model.train()
             optimizer.zero_grad()
-
-            loss = crit(model(X_tr_cv), Y_tr_cv)
+            if crit == PowerLoss :
+                loss = loss_func.forward(scaler_scalar = scaler_scalar_torch, scaler_field = scaler_field_torch, output = model(X_tr_cv), target = Y_tr_cv, device = device, res = res)
+            else : 
+                loss = crit(model(X_tr_cv), Y_tr_cv)
             loss.backward()
             optimizer.step()
 
         model.eval()
         pred_raw = model(X_val_cv)
         pred_denorm = scaler_TPow_torch.inverse_transform(pred_raw).detach()
-        if res == '2' or res == '0' : ## Retirer la composante SVEN du résidu
+        if res == '1' or res == '-1' : ## Retirer la composante SVEN du résidu
             pred_denorm += Y_val_cv
-            
+        
         rmse_pow = torch.sqrt(torch.mean((pred_denorm-Y_val_cv)**2))
         rel_rmse_pow = (rmse_pow / torch.sqrt(torch.mean(Y_val_cv**2))) * 100 if torch.mean(Y_val_cv**2) > 1e-5 else 0
 
@@ -96,19 +125,24 @@ def evaluator_power(df_train, df_val, entree, res, comp) :
     ##  Redéclaration de chaque modèle et chaque méthode employée pour éviter
     ##  les résidus d'anciennes sims dans l'entraînement final
 
-    model = PowerMLP(X_train.shape[1], Y_train.shape[1],
+    model = PowerMLP(X_train.shape[1], out_dim,
                           n_layers = best_params['n_layers'], n_neurons = best_params['n_neurons'],
                           dropout = best_params['dropout_rate'], device = device)
     optimizer = torch.optim.Adam(model.parameters(), lr = best_params['lr'])
     crit = nn.MSELoss()
     best_train_loss = float('inf')
 
-    pbar = tqdm(range(1000), desc=f"   Training Final")
+    pbar = tqdm(range(10), desc=f"   Training Final")
     for epoch in pbar:
         model.train()
         optimizer.zero_grad()
 
-        loss = crit(model(X_train), Y_train)
+        if crit == PowerLoss : 
+            loss = loss_func.forward(scaler_scalar = scaler_scalar_torch, scaler_field = scaler_field_torch, output = model(X_tr_cv), target = Y_tr_cv, device = device, res = res)
+        else :            
+            loss = crit(model(X_train), Y_train)
+
+             
         loss.backward()
         optimizer.step()
 
@@ -125,12 +159,12 @@ def evaluator_power(df_train, df_val, entree, res, comp) :
     ## Début des calculs finaux (pour évaluer le modèle ayant les meilleurs paramètres)
     model.eval()
     with torch.no_grad() :
-            preds_raw = model(X_val)
+        preds_raw = model(X_val)
     preds_norm_np = preds_raw.cpu().numpy()
 
-    with open(f"Power_models/Data/DataDir/scalers/scaler_Y_{model_name}_pow.pkl", 'rb') as f : scaler_Y = pickle.load(f)
+    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : scaler_Y = pkl.load(f)
 
-    if res == '1' or res == '0' :
+    if res == '1' or res == '-1' :
         Y_denorm = scaler_Y.inverse_transform(Y_val.cpu().numpy())
         pred_denorm = scaler_Y.inverse_transform(preds_norm_np)
         preds_final = pred_denorm + Y_denorm 
