@@ -54,18 +54,18 @@ class ForceEncoder(nn.Module) :
         return self.decode(self.encode(x))
 
 class PowerCNN(nn.Module) : 
-    def __init__(self, in_channels, out_channel, n_layers, base_filters, dropout_rate, device = 'cpu') :
+    def __init__(self, in_channels, n_layers, base_filters, dropout_rate, size_output = 2592, device = 'cpu') :
         super().__init__()
         
         ## Entrée du réseau
-        self.initial_conv = nn.Sequential(
+        self.initial_layer = nn.Sequential(
             PeriodicPadding2d(pad_r = PADDING_R, pad_theta = PADDING_THETA), ## Padding sur l'image avant convolution pour capter le bord
             nn.Conv2d(in_channels, base_filters, kernel_size = KERNEL_SIZE, padding = 0, device = device), ## Duplication de l'image sur base_filters channel différent sur lesquels un filtres particulier est appliqué
             nn.BatchNorm2d(base_filters, device = device), ## Normalisation sur tout le batch pour chacun des channels, si on est en full batch, alors chaque channel est normalisé indépendamment des autres
-            nn.ReLU() ## Passage dans une fonction d'activation : chaque pixel de chaque channel est passé dedans
+            nn.ReLU() ## Passage dans une fonction d'activation : chaque pixel de chaque channel y est passé
         )
 
-        ## Création de chacune des couches 
+        ## Création de chacune des couches cachés
         layers = []
         curr_filters = base_filters
         for _ in range(n_layers) :
@@ -77,13 +77,15 @@ class PowerCNN(nn.Module) :
 
         self.final_layer = nn.Sequential(
             PeriodicPadding2d(pad_r = PADDING_R, pad_theta = PADDING_THETA),
-            nn.Conv2d(curr_filters, out_channel, kernel_size = KERNEL_SIZE, padding = 0, device = device)
+            nn.Conv2d(curr_filters, out_channels = 1, kernel_size = KERNEL_SIZE, padding = 0, device = device), 
+            nn.Flatten(start_dim = 1), 
+            nn.Linear(36 * 72, size_output, device = device)
         )
 
     def forward(self,x) :
-            x = self.initial_conv(x)
+            x = self.initial_layer(x)
             x = self.hidden_layers(x)
-            x = self.final_layers(x)
+            x = self.final_layer(x)
             return x
 
 class PeriodicPadding2d(nn.Module):
@@ -135,26 +137,27 @@ class PowerDensityLoss(nn.Module) :
         super().__init__()
 
     ## Métrique à essayer sur les GV, pas les GVP
-    def forward(self, scaler, output, target, device) :
-        denorm_out = scaler.inverse_transform(output)
-        denorm_targ = scaler.inverse_transform(target)
+    def forward(self, entree, scaler, mdl_output, target, device) :
 
-        denorm_out = denorm_out.reshape((denorm_out.shape[0],2,2592))
-        denorm_targ = denorm_targ.reshape((denorm_targ.shape[0],2,2592,))
+        if entree == 'GMP' :
+            
+            denorm_out = scaler.inverse_transform(mdl_output)
+            denorm_targ = scaler.inverse_transform(target)
+
+            denorm_out = denorm_out.reshape((denorm_out.shape[0],2,2592))
+            denorm_targ = denorm_targ.reshape((denorm_targ.shape[0],2,2592,))
 
 
-        ## out_dP et targ_dP sont les densités de puissances (des mesures)
-        out_dP = compute_cp_diff(col_fn = denorm_out[:,0,:], col_ft = denorm_out[:,1,:], 
-                                 device = device)
-        targ_dP = compute_cp_diff(col_fn = denorm_targ[:,0,:], col_ft = denorm_targ[:,1,:], device = device)
+            ## out_dP et targ_dP sont les densités de puissances (des mesures)
+            out_dP = compute_cp_diff(col_fn = denorm_out[:,0,:], col_ft = denorm_out[:,1,:], 
+                                    device = device)
         
-        return nn.MSELoss(out_dP, targ_dP)
+        return nn.MSELoss(out_dP, target)
     
 class PowerLoss(nn.Module) : 
     def __init__(self) :
         super().__init__()
 
-    ## Loss prévue pour les GVP, pas les GV
     def forward(self, scaler_field, scaler_scalar, output, target, entree, res, device):
         if entree == 'GV' :
             ## Dénormaliser

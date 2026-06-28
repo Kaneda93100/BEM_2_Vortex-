@@ -13,7 +13,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from Power_models.src.PModels import ForceEncoder 
-from core.physics import compute_cp
+from core.physics import compute_cp, compute_density_cp
+
 
 def get_splits(df, seed = 42, test_size = 0.2, save_dir = None):
     
@@ -43,15 +44,15 @@ def convert_f_to_power(df) :
 
     return ds_full
 
-def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu') :
+def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu') :
 
-    ## 0. Convertir les forces en puissance
 
-    P_full = convert_f_to_power(df)
-    P = P_full[['yaw', 'TSR', 'Cp_BEM', 'Cp_SVEN']] 
-    
     ## 1. Choix de l'approche residuelle
     if entree == 'DP' :
+
+        P_full = convert_f_to_power(df)
+        P = P_full[['yaw', 'TSR', 'Cp_BEM', 'Cp_SVEN']]
+        
         if res == '2' :         ## Features == [yaw, tsr, BEM] | target = [SVEN]
             X = P[['yaw', 'TSR', 'Cp_BEM']].values
             Y = P[['Cp_SVEN']].values
@@ -68,28 +69,27 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
 
 
     elif entree == 'GVP' :
-        df_calc = pd.merge(df, P, on = ['yaw', 'TSR'])
+        df_calc = df.copy()
         grand_group = df_calc.groupby(['yaw', 'TSR'])
         X,Y = [],[]
-
         
         for (y_val, tsr_val), group in grand_group :
-            power_sven = group['Cp_SVEN'].unique()
-            power_bem  = group['Cp_BEM'].unique()
-            bem_comp   = group[['Fn_BEM', 'Ft_BEM']].values.flatten()
+            dQ_bem = compute_density_cp(group['Fn_BEM'].values, group['Ft_BEM'].values)
+            dQ_sven = compute_density_cp(group['Fn_SVEN'].values, group['Ft_SVEN'].values)
+            forces_bem = group[['Fn_BEM', 'Ft_BEM']].values.flatten()
 
             if res == '2' :      ## Features == [yaw, tsr, BEM] | target = [SVEN]
-                X_val = np.concatenate(([y_val, tsr_val], bem_comp))
-                Y_val = power_sven
+                X_val = np.concatenate(([y_val, tsr_val], forces_bem))
+                Y_val = dQ_sven
             elif res == '1' :    ## 
-                X_val =  np.concatenate(([y_val, tsr_val], bem_comp))
-                Y_val = power_bem - power_sven
+                X_val =  np.concatenate(([y_val, tsr_val], forces_bem))
+                Y_val = dQ_bem - dQ_sven
             elif res == '0' :
                 X_val = [y_val, tsr_val]
-                Y_val = power_sven
+                Y_val = dQ_sven
             elif res == '-1' :
                 X_val = [y_val, tsr_val]
-                Y_val = power_bem - power_sven
+                Y_val = dQ_bem - dQ_sven
 
             X.append(X_val)
             Y.append(Y_val)
@@ -97,7 +97,7 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
         X, Y = np.array(X), np.array(Y)
     
     elif entree == 'GMP' :
-        df_calc = pd.merge(df, P, on = ['yaw', 'TSR'])
+        df_calc = df.copy()
         grand_group = df_calc.groupby(['yaw', 'TSR'])
         X,Y = [],[]
 
@@ -105,51 +105,86 @@ def format_data_power(df, entree, res, comp, scaler_exist = False, device = 'cpu
         theta = np.sort(df_calc['theta'].unique())
 
         for (y_val, tsr_val), group in grand_group :
-            group = group.sort_values(['r', 'theta'])
-
-            power_sven = group['Cp_SVEN'].unique()
-            power_bem = group['Cp_BEM'].unique()
-            bem_img = group['Fn_BEM', 'Ft_BEM'].values.reshape(len(r), len(theta),2)
+            dQ_bem = compute_density_cp(group['Fn_BEM'].values, group['Ft_BEM'].values)
+            dQ_sven = compute_density_cp(group['Fn_SVEN'].values, group['Ft_SVEN'].values)
+            bem_img = group[['Fn_BEM', 'Ft_BEM']].values.reshape(len(r), len(theta),2)
 
             yaw_channel = np.full((len(r), len(theta)),y_val)
             tsr_channel = np.full((len(r), len(theta)), tsr_val)
 
             if res == '2' :
-                Y_val = power_sven
-                X_val = np.stack([bem_img, yaw_channel, tsr_channel])
+                Y_val = dQ_sven
+                X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
             elif res == '1' :
-                Y_val = power_bem - power_sven
+                Y_val = dQ_bem - dQ_sven
                 X_val = np.stack([bem_img, yaw_channel, tsr_channel])
             else :
                 raise Exception(f"Approche GM sans BEM en entrée non supportée.\n")
+            X.append(X_val)
+            Y.append(Y_val)
+        X_np = np.array(X)
+        Y_np = np.array(Y)
+
 
     ## 2. Normalisation
     model_name = f"{entree}_{res}_{comp}"
     os.makedirs("Power_models/scalers", exist_ok = True)
     path_x, path_y = f"Power_models/scalers/scaler_X_{model_name}.pkl", f"Power_models/scalers/scaler_Y_{model_name}.pkl"  
-    
-    if scaler_exist :
-        print("\n Des scalers ont été trouvé.\n")
-        with open(path_x, 'r') as f :
-            scaler_X = pkl.load(f)
-        with open(path_y, 'r') as f :
-            scaler_Y = pkl.load(f)
-        X_scaled = scaler_X.transform(X)
-        Y_scaled = scaler_Y.transform(Y)
-    else : 
-        scaler_X, scaler_Y = StandardScaler(), StandardScaler()
-        X_scaled = scaler_X.fit_transform(X)
-        Y_scaled = scaler_Y.fit_transform(Y)
 
-        with open(path_x, 'wb') as f :
-            pkl.dump(scaler_X, f)
-        with open(path_y, 'wb') as f : 
-            pkl.dump(scaler_Y, f)
-    
+    if f"scaler_X_{model_name}.pkl" not in os.listdir("Power_models/scalers") and f"scaler_Y_{model_name}.pkl" not in os.listdir("Power_models/scalers") :
+        scaler_exist = False
+
+    if entree == 'GVP' or entree == 'DP': 
+        if scaler_exist :
+            print("\n Des scalers ont été trouvé.\n")
+            with open(path_x, 'rb') as f :
+                scaler_X = pkl.load(f)
+            with open(path_y, 'rb') as f :
+                scaler_Y = pkl.load(f)
+            X_scaled = scaler_X.transform(X)
+            Y_scaled = scaler_Y.transform(Y)
+        else : 
+            scaler_X, scaler_Y = StandardScaler(), StandardScaler()
+            X_scaled = scaler_X.fit_transform(X)
+            Y_scaled = scaler_Y.fit_transform(Y)
+
+            with open(path_x, 'wb') as f :
+                pkl.dump(scaler_X, f)
+            with open(path_y, 'wb') as f : 
+                pkl.dump(scaler_Y, f)
+
+    elif entree == 'GMP':
+        ## Applatir l'image sur tous les canaux pour normaliser
+        X_original_shape = X_np.shape
+        X_np = X_np.reshape((X_np.shape[0], X_np.shape[1]*X_np.shape[2]*X_np.shape[3]))
+
+        if scaler_exist :
+            print("\n Des scalers ont été trouvé.\n")
+            with open(path_x, 'rb') as f :
+                scaler_X = pkl.load(f)
+            with open(path_y, 'rb') as f :
+                scaler_Y = pkl.load(f)
+            
+            X_scaled = scaler_X.fit_transform(X_np)
+            Y_scaled = scaler_Y.fit_transform(Y_np)
+        else :
+            print("Aucun scaler n'a été trouvé. Ils vont être calculés.\n")
+            scaler_X = StandardScaler()
+            scaler_Y = StandardScaler()
+
+            X_scaled = scaler_X.fit_transform(X_np)
+            Y_scaled = scaler_Y.fit_transform(Y_np)
+
+            with open(path_x, 'wb') as f :
+                pkl.dump(scaler_X, f)
+            with open(path_y, 'wb') as f :
+                pkl.dump(scaler_Y,f)
+
+    X_scaled = X_scaled.reshape(X_original_shape)
     X_tensor = torch.tensor(X_scaled, dtype = torch.float32, device = device)
     Y_tensor = torch.tensor(Y_scaled, dtype = torch.float32, device = device)
     
-    ## 3. Gestion de la compression des efforts BEM
+    ## 3. Gestion de la compression des efforts BEM (seulement pour GVP pour l'instant)
     if entree == 'GVP' :
         if res == '2' or res == '1' : ## Pas de vecteurs de force dans les autres cas
             if comp == True :

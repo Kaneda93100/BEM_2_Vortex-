@@ -1,29 +1,16 @@
 import time
 import os
 import itertools
-from training.src.data_loader import load_clean_data, get_splits
+from src.data_loader import load_clean_data, get_splits
 from training.src.optimize_ae import optimize_and_train_ae
 from training.src.optimize import optimize
 from training.src.evaluate import evaluator, evaluate_baselines
 from core.config import INTERMS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRIALS_GM
 
 def main():
-<<<<<<< Updated upstream
-    os.makedirs("training/performance", exist_ok=True)
-=======
-    # =========================================================================
-    # CONFIGURATION DU TRAVAIL COLLABORATIF (Découpage en 3 Groupes)
-    # =========================================================================
-    # Ces booléens permettent de lancer uniquement la ou les parties souhaitées.
-    
-    RUN_GROUP_1 = False  # Groupe 1 : Tous les GV (MLP)
-    RUN_GROUP_2 = False  # Groupe 2 : Uniquement GM_f (CNN - Forces)
-    RUN_GROUP_3 = True  # Groupe 3 : Uniquement GM_v (CNN - Vitesses)
-
     global_start = time.time()
     
     print("Chargement des données...")
->>>>>>> Stashed changes
     df_full = load_clean_data()
     df_train, df_test = get_splits(df_full, seed=42)
     
@@ -50,30 +37,30 @@ def main():
     
     test_models = [
         # Q1: Comparaison de l'intégration BEM (0 vs 1 vs 2)
-        ('GM', '0', 'f', False, 'A'),
-        ('GM', '1', 'f', False, 'A'), # Point de Pivot
-        ('GM', '2', 'f', False, 'A'),
+        ('GM', '1', 'f', False, 'A'),
+        #('GM', '1', 'f', False, 'A'), # Point de Pivot
+        #('GM', '2', 'f', False, 'A'),
         
         # Q2: Impact du format spatial (GM vs GV)
-        ('GV', '1', 'f', False, 'A'),
+        #('GV', '1', 'f', False, 'A'),
         
         # Q3: Grandeur cible (Forces vs Vitesses)
-        ('GM', '1', 'v', False, 'A'),
+        #('GM', '1', 'v', False, 'A'),
         
         # Q4: Fonction de perte (A vs B)
-        ('GM', '1', 'f', False, 'B'),
-        ('GM', '1', 'v', False, 'B'),
+        #('GM', '1', 'f', False, 'B'),
+        #('GM', '1', 'v', False, 'B'),
         
         # Q5: Apport de l'Auto-Encodeur (D0 vs DXY)
-        ('GM', '0', 'f', True,  'A'),
-        ('GM', '1', 'f', True,  'A'),
-        ('GM', '2', 'f', True,  'A'), # Servira de base pour comparer le 2+
-        ('GM', '1', 'v', True,  'A'),
-        ('GM', '2', 'v', True,  'A'), # Servira de base pour comparer le 2+
+        #('GM', '0', 'f', True,  'A'),
+        #('GM', '1', 'f', True,  'A'),
+        #('GM', '2', 'f', True,  'A'), # Servira de base pour comparer le 2+
+        #('GM', '1', 'v', True,  'A'),
+        #('GM', '2', 'v', True,  'A'), # Servira de base pour comparer le 2+
         
         # Q6: Apport du mode '+' (Projection dans l'espace latent)
-        ('GM', '2+', 'f', True,  'A'),
-        ('GM', '2+', 'v', True,  'A'),
+        #('GM', '2+', 'f', True,  'A'),
+        #('GM', '2+', 'v', True,  'A'),
     ]
     
     for e, r, i, has_ae, opt in test_models:

@@ -32,7 +32,7 @@ def run() :
                 print(f"     Début de l'optimisation Optuna pour {model_name}")
                 
                 start_opt = perf_counter()
-                optimize_PM(df_train, entree = entree, res = res, comp = comp, crit = torch.nn.MSELoss)
+                optimize_PM(df_train, entree = entree, res = res, comp = comp, crit = PowerDensityLoss)
                 stop_opt = perf_counter()
 
                 time_exe = round((stop_opt-start_opt)/60, 2)
@@ -41,7 +41,7 @@ def run() :
                 print(f"\n      Début de l'entraînement final + cross valditation")
                 
                 start_eval = perf_counter()
-                evaluator_power(df_train, df_val, entree, res, comp, crit = PowerLoss)
+                evaluator_power(df_train, df_val, entree, res, comp)
                 stop_eval = perf_counter()
 
                 time_exe = round((stop_eval - start_eval)/60, 2)

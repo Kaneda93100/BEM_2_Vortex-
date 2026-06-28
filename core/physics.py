@@ -108,7 +108,6 @@ def convert_v_to_f(V_eff, alpha_deg, r):
     
     return Fn, Ft
 
-
 def compute_cp(df, col_fn, col_ft, R_rotor=R_ROTOR, Nb_pales=3, omega=OMEGA):
     """
     Calcule Cp, Ct, ainsi que les écarts-types sur la rotation et l'envergure.
@@ -196,7 +195,29 @@ def compute_cp(df, col_fn, col_ft, R_rotor=R_ROTOR, Nb_pales=3, omega=OMEGA):
         
     return pd.DataFrame(results)
 
-def compute_cp_diff(col_fn:torch.tensor, col_ft:torch.tensor, device, R_rotor=R_ROTOR, Nb_pales=3, omega=OMEGA) :
+def compute_density_cp(col_fn, col_ft):
+    if col_fn.shape[0] != 2592 or col_ft.shape[0] != 2592:
+        raise Exception(f"Les arrays d'entrée ne sont pas de bonne dimension.")
+    geom = get_geometry()
+    
+    # 1. Récupérer les distances entre chaque noeuds et les rayons
+    dr_np = np.array(Dist_R*72, dtype = np.float32) #Reshape de la distribution des rayons par azimuth
+    dl_np = np.array(list(dl_map.values())*72, dtype = np.float32)
+    
+    # 2. Angle structurel de la pale (Pitch + Twist) --> Pas besoin d'être auto-diff
+    phi_rad = PITCH_RAD + np.array(geom.get_twist_rad(dr_np))
+    
+    # 3. Projections Aérodynamiques
+    Ft_corrige = col_ft * -1 
+    cos_phi = np.cos(phi_rad)
+    sin_phi = np.sin(phi_rad)
+
+    # 4. Calcul de la densité de puissance
+    dQ_r = col_fn * sin_phi + Ft_corrige * cos_phi
+    dQ = dQ_r * dr_np * dl_np
+    return dQ
+
+def compute_cp_diff(col_fn:torch.tensor, col_ft:torch.tensor, device) :
     
     if col_fn.shape[1] != 2592 or col_ft.shape[1] != 2592:
         raise Exception(f"Les tenseurs d'entrée ne sont pas de bonne dimension.")

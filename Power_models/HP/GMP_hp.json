@@ -1,0 +1,8 @@
+{
+    "GMP_2_False": {
+        "lr": 1.3954900911556497e-07,
+        "dropout_rate": 0,
+        "n_layers": 4,
+        "base_filters": 64
+    }
+}

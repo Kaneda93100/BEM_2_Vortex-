@@ -18,11 +18,13 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from Power_models.src.dataloaders import format_data_power, format_f, get_splits
-from Power_models.src.PModels import PowerMLP, ForceEncoder, PowerCNN, PowerLoss
-from core.models import TorchScaler
+from Power_models.src.PModels import PowerMLP, ForceEncoder, PowerCNN, PowerDensityLoss
 from training.src.data_loader import format_data
+from core.models import TorchScaler
+from core.config import CNN_FILTERS_CHOICES
 
-def optimize_PM(df_train, entree, res, comp, crit, n_trials = 50) :
+
+def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_name = f'{entree}_{res}_{comp}'
     hp_file_name = model_name
@@ -40,22 +42,21 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 50) :
         dim_out = X_set.shape[1]-2 # On retire -2 pour ne garder que le champs de force
     elif entree == 'DP' :
         dim_out = Y_set.shape[1]
-    
+
     ## scaler_scalar
     with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl" ,'rb') as f :
             scaler_scalar = pkl.load(f)
-            scaler_scalar_torch = TorchScaler(scaler_scalar, device = device)
-    
+
     ## scaler_field
-    get_scale = f'scaler_Y_GV_0_f.pkl'
+    get_scale = f'scaler_Y_{model_name}.pkl'
     try :
-        with open(f"training/scalers/{get_scale}", 'rb') as f :
+        with open(f"Power_models/scalers/{get_scale}", 'rb') as f :
             scaler_field = pkl.load(f)
-            scaler_field_torch = TorchScaler(scaler_field, device = device) 
+        scaler_field_torch = TorchScaler(scaler_field, device = device) 
     except FileNotFoundError :
         print(f"Le scaler {get_scale} n'a pas été trouvé. Il va être calculé.\n")
         _,_ = format_data(df_train, entree = 'GV', res = '0', inter = 'f', is_train = True)
-        with open(f"training/scalers/{get_scale}", 'rb') as f :
+        with open(f"Power_models/scalers/{get_scale}", 'rb') as f :
             scaler_field = pkl.load(f)
     finally :
         scaler_field_torch = TorchScaler(scaler_field, device = device) 
@@ -78,13 +79,14 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 50) :
             
         elif entree == 'GMP' : 
             n_layers = trial.suggest_int('n_layers', 2, 5)
-            base_filters = trial.suggest_int(16,64, step = 8)
-            model = PowerCNN(X_set.shape[1], Y_set.shape[1], n_layers = n_layers, 
-                             dropout_rate = dropout_rate, device = device)
+            base_filters = trial.suggest_categorical('base_filters', CNN_FILTERS_CHOICES)#trial.suggest_int(16,64, step = 8)
+            model = PowerCNN(X_set.shape[1], n_layers = n_layers, 
+                             base_filters = base_filters, dropout_rate = dropout_rate, size_output = Y_set.shape[1], device = device)
             
         optimizer = torch.optim.Adam(model.parameters(), lr = lr)
-        loss_func = crit()
+        crit = nn.MSELoss()
         best_val_loss = float('inf')
+    
 
         ## Itérer sur les folds 
         for train_idx, val_idx in kf.split(X_set.detach().cpu().numpy()) :
@@ -92,26 +94,19 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 50) :
             X_val, Y_val = X_set[val_idx], Y_set[val_idx]
             
             ## Entraînement
-            for epoch in range(500) :
+            for epoch in range(1) :
                 model.train()
                 optimizer.zero_grad()
-
-                if crit == PowerLoss : 
-                    loss = loss_func.forward(scaler_scalar = scaler_scalar_torch, scaler_field = scaler_field_torch, output = model(X_tr), target = Y_tr, res = res, device = device)
-                else :
-                    loss = loss_func(model(X_tr), Y_tr)
-                
+                #y = model(X_tr)                
+                loss = crit(model(X_tr), Y_tr)
+            
                 loss.backward()
                 optimizer.step()
             
                 ## Evaluation
                 model.eval()
                 with torch.no_grad() :
-                    if crit == PowerLoss : 
-                        val_loss = loss_func.forward(scaler_scalar = scaler_scalar_torch, scaler_field = scaler_field_torch, output = model(X_val), target = Y_val, res = res, device = device).item()
-                    else :
-                        val_loss = loss_func.forward(model(X_val), Y_val).item()
-                
+                    val_loss = crit(model(X_tr), Y_tr)
                 if val_loss < best_val_loss :
                     best_val_loss = val_loss
 
