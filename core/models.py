@@ -60,8 +60,9 @@ class TurbineCNN(nn.Module):
         
         if use_autoencoder:
             self.final_layer = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
                 nn.Flatten(),
-                nn.Linear(current_channels * self.grid_r * self.grid_theta, latent_dim, device=device)
+                nn.Linear(current_channels, latent_dim, device=device)
             )
         else:
             self.final_layer = nn.Sequential(
