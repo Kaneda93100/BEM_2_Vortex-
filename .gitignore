@@ -36,3 +36,7 @@ Power_models/scalers/*
 Power_models/scalers_FBEM/*
 FatTraining/*
 scalers/*
+*.json
+*.pkl
+*.pth
+*.xlsx
