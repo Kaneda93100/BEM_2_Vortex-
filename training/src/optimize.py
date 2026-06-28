@@ -1,3 +1,4 @@
+import gc
 import optuna
 import json
 import torch
@@ -223,7 +224,13 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         trial.set_user_attr("ae_nature", ae_nature)
         trial.set_user_attr("ae_dim", ae_dim)
         trial.set_user_attr("l1", l1); trial.set_user_attr("l2", l2); trial.set_user_attr("l3", l3)
-        return mean_custom_score 
+        del criterion_builder, metric_fn
+        if has_ae:
+            current_ae.cpu()
+            del current_ae
+        gc.collect()
+        torch.cuda.empty_cache()
+        return mean_custom_score
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study_model = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner(n_warmup_steps=PRUNER_WARMUP))
