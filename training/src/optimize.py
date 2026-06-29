@@ -177,7 +177,8 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         if has_plus and current_ae is not None:
             with torch.no_grad():
                 if entree == 'GV':
-                    z_bem = current_ae.encode(Y_bem_full)
+                    y_bem_input = Y_bem_full if ae_nature == 'V' else Y_bem_full.reshape(Y_bem_full.size(0), 2, 36, 72)
+                    z_bem = current_ae.encode(y_bem_input)
                     X_trial = torch.cat([X_full[:, :n_scalaires_full], z_bem], dim=1)
                 else:  # GM
                     y_bem_input = Y_bem_full.reshape(Y_bem_full.size(0), -1) if ae_nature == 'V' else Y_bem_full

@@ -57,8 +57,8 @@ def main():
         ('GM', '2', 'v', True,  'A'), # Servira de base pour comparer le 2+
         
         # Q6: Apport du mode '+' (Projection dans l'espace latent)
-        ('GM', '2+', 'f', True,  'A'),
-        ('GM', '2+', 'v', True,  'A'),
+        ('GV', '2+', 'f', True,  'A'),
+        ('GV', '2+', 'v', True,  'A'),
     ]
     
     for e, r, i, has_ae, opt in test_models:
