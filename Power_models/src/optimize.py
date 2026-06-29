@@ -24,7 +24,7 @@ from core.models import TorchScaler
 from core.config import CNN_FILTERS_CHOICES
 
 
-def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
+def optimize_PM(df_train, entree, res, comp, n_trials = 1, eps_obj = 1000) :
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_name = f'{entree}_{res}_{comp}'
     hp_file_name = model_name
@@ -38,29 +38,6 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
     ## 1. Préparation des données
     X_set, Y_set = format_data_power(df_train, entree, res, comp, device = device)
 
-    if entree == 'GVP' :
-        dim_out = X_set.shape[1]-2 # On retire -2 pour ne garder que le champs de force
-    elif entree == 'DP' :
-        dim_out = Y_set.shape[1]
-
-    ## scaler_scalar
-    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl" ,'rb') as f :
-            scaler_scalar = pkl.load(f)
-
-    ## scaler_field
-    get_scale = f'scaler_Y_{model_name}.pkl'
-    try :
-        with open(f"Power_models/scalers/{get_scale}", 'rb') as f :
-            scaler_field = pkl.load(f)
-        scaler_field_torch = TorchScaler(scaler_field, device = device) 
-    except FileNotFoundError :
-        print(f"Le scaler {get_scale} n'a pas été trouvé. Il va être calculé.\n")
-        _,_ = format_data(df_train, entree = 'GV', res = '0', inter = 'f', is_train = True)
-        with open(f"Power_models/scalers/{get_scale}", 'rb') as f :
-            scaler_field = pkl.load(f)
-    finally :
-        scaler_field_torch = TorchScaler(scaler_field, device = device) 
-
     #   -----------------------------------   #
     #   Début fonction objectif pour Optuna   #
     #   -----------------------------------   #
@@ -70,10 +47,10 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
     
         kf = KFold(n_splits = 3, shuffle = True, random_state = 42)
         cv_scores = []
-        if entree == 'GV' or entree == 'DP' :
+        if entree == 'GVP' or entree == 'DP' :
             n_neurons = trial.suggest_int('n_neurons', 128, 896, step=64)
             n_layers = trial.suggest_int('n_layers', 2, 8)
-            model = PowerMLP(X_set.shape[1], dim_out,
+            model = PowerMLP(X_set.shape[1], Y_set.shape[1],
                                 n_layers = n_layers, n_neurons = n_neurons,
                                 dropout = dropout_rate, device = device)
             
@@ -94,10 +71,9 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
             X_val, Y_val = X_set[val_idx], Y_set[val_idx]
             
             ## Entraînement
-            for epoch in range(1) :
+            for epoch in range(eps_obj) :
                 model.train()
                 optimizer.zero_grad()
-                #y = model(X_tr)                
                 loss = crit(model(X_tr), Y_tr)
             
                 loss.backward()
@@ -106,7 +82,7 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
                 ## Evaluation
                 model.eval()
                 with torch.no_grad() :
-                    val_loss = crit(model(X_tr), Y_tr)
+                    val_loss = crit(model(X_val), Y_val)
                 if val_loss < best_val_loss :
                     best_val_loss = val_loss
 
@@ -133,7 +109,7 @@ def optimize_PM(df_train, entree, res, comp, crit, n_trials = 1) :
 
     all_model_params[hp_file_name] = final_params
     with open(file_HP, 'w') as f : json.dump(all_model_params,f, indent = 4)
-    print(f"   [OK] Modèle {hp_file_name} optimisé.")
+    print(f"[OK]     Modèle {hp_file_name} optimisé.")
 
     return    
 

@@ -117,7 +117,7 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
                 X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
             elif res == '1' :
                 Y_val = dQ_bem - dQ_sven
-                X_val = np.stack([bem_img, yaw_channel, tsr_channel])
+                X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
             else :
                 raise Exception(f"Approche GM sans BEM en entrée non supportée.\n")
             X.append(X_val)
@@ -180,7 +180,8 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
             with open(path_y, 'wb') as f :
                 pkl.dump(scaler_Y,f)
 
-    X_scaled = X_scaled.reshape(X_original_shape)
+        X_scaled = X_scaled.reshape(X_original_shape)
+        
     X_tensor = torch.tensor(X_scaled, dtype = torch.float32, device = device)
     Y_tensor = torch.tensor(Y_scaled, dtype = torch.float32, device = device)
     
