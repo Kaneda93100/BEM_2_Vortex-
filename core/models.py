@@ -371,19 +371,32 @@ def convert_v_to_f_torch(v_eff, alpha_deg, r_tensor, c_tensor, polar_surrogate, 
 # =========================================================================
 
 def y_to_cnn_format(y: torch.Tensor) -> torch.Tensor:
-    """(N, 5184) -> (N, 2, 36, 72) : format canonique CNN."""
+    """(N, 5184) GM flat (channels-first, r-major) -> (N, 2, 36, 72). Simple reshape."""
     return y.reshape(y.size(0), 2, 36, 72)
 
+def gv_to_gm_format(y: torch.Tensor) -> torch.Tensor:
+    """(N, 5184) GV interleaved (theta-major) -> (N, 2, 36, 72) GM (r-major, channels-first)."""
+    N = y.size(0)
+    y_3d = y.reshape(N, 72, 36, 2)
+    an = y_3d[:, :, :, 0].permute(0, 2, 1)  # (N, 36, 72)
+    at = y_3d[:, :, :, 1].permute(0, 2, 1)
+    return torch.stack([an, at], dim=1)      # (N, 2, 36, 72)
+
 def y_to_mlp_format(y: torch.Tensor) -> torch.Tensor:
-    """(N, 2, 36, 72) -> (N, 5184) : format canonique MLP."""
-    return y.reshape(y.size(0), -1)
+    """(N, 2, 36, 72) GM (r-major, channels-first) -> (N, 5184) GV interleaved (theta-major)."""
+    N = y.size(0)
+    an = y[:, 0].permute(0, 2, 1)           # (N, 72, 36)
+    at = y[:, 1].permute(0, 2, 1)
+    return torch.stack([an, at], dim=3).reshape(N, -1)
 
 def adapt_ae_output_to_target(decoded: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Adapte la sortie décodée de l'AE au format de la cible Y du modèle prédictif."""
     if target.dim() == 4 and decoded.dim() == 2:
-        return y_to_cnn_format(decoded)
+        return y_to_cnn_format(decoded)      # LinearAE GM flat -> GM 4D
     if target.dim() == 2 and decoded.dim() == 4:
-        return y_to_mlp_format(decoded)
+        return y_to_mlp_format(decoded)      # ConvAE GM 4D -> GV interleaved
+    if target.dim() == 2 and decoded.dim() == 2:
+        return y_to_mlp_format(y_to_cnn_format(decoded))  # LinearAE GM flat -> GV interleaved
     return decoded
 
 # =========================================================================

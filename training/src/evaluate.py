@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from core.models import (TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder,
                          PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, compute_cp_ct_torch,
-                         adapt_ae_output_to_target)
+                         adapt_ae_output_to_target, gv_to_gm_format)
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import fit_model, cross_validate
 from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
@@ -176,8 +176,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
             Y_bem_train = format_bem_as_Y(df_train, entree, inter, scaler_Y, device)
             Y_bem_test  = format_bem_as_Y(df_test,  entree, inter, scaler_Y, device)
             if entree == 'GV':
-                y_bem_tr = Y_bem_train if ae_nature == 'V' else Y_bem_train.reshape(Y_bem_train.size(0), 2, 36, 72)
-                y_bem_te = Y_bem_test  if ae_nature == 'V' else Y_bem_test.reshape(Y_bem_test.size(0),  2, 36, 72)
+                tr_cnn = gv_to_gm_format(Y_bem_train)
+                te_cnn = gv_to_gm_format(Y_bem_test)
+                y_bem_tr = tr_cnn.reshape(Y_bem_train.size(0), -1) if ae_nature == 'V' else tr_cnn
+                y_bem_te = te_cnn.reshape(Y_bem_test.size(0),  -1) if ae_nature == 'V' else te_cnn
                 z_bem_train = current_ae.encode(y_bem_tr)
                 z_bem_test  = current_ae.encode(y_bem_te)
                 X_train = torch.cat([X_train[:, :n_scalaires], z_bem_train], dim=1)

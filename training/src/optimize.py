@@ -5,7 +5,7 @@ import torch
 import os
 import numpy as np
 import pickle
-from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, adapt_ae_output_to_target
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, adapt_ae_output_to_target, gv_to_gm_format
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
@@ -177,7 +177,8 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         if has_plus and current_ae is not None:
             with torch.no_grad():
                 if entree == 'GV':
-                    y_bem_input = Y_bem_full if ae_nature == 'V' else Y_bem_full.reshape(Y_bem_full.size(0), 2, 36, 72)
+                    y_bem_cnn = gv_to_gm_format(Y_bem_full)
+                    y_bem_input = y_bem_cnn.reshape(Y_bem_full.size(0), -1) if ae_nature == 'V' else y_bem_cnn
                     z_bem = current_ae.encode(y_bem_input)
                     X_trial = torch.cat([X_full[:, :n_scalaires_full], z_bem], dim=1)
                 else:  # GM
