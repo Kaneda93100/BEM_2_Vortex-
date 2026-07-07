@@ -15,16 +15,16 @@ from time import perf_counter
 
 path_data = P.Path('data/raw/fichier_forces.csv')
 
-eps_obj     = 1000
-n_trials    = 500
+eps_obj     = 50
+n_trials    = 10
 
 eps_cv      = 1000
 eps_train   = 1000
 
 def run() : 
     glob_start = perf_counter()
-
-    if os.path.exists('Power_models/performance/recap_score_glob.csv') :
+    """
+        if os.path.exists('Power_models/performance/recap_score_glob.csv') :
         print("[Info]   Attention : le dossier performance contient déjà un récapitulatif. Lancer ce script signifie écraser ce fichier. Entrez [Y/N] pour continuer.\n")
         decision = input('Y --> lancer run.py, N --> ne pas lancer run.py   ')
         if decision == "N" or decision == "n" :
@@ -32,17 +32,19 @@ def run() :
             return
         else :
             print("Le script va s'éxécuter.\n\n\n\n")
+    """
+
 
     df_full = pd.read_csv(path_data)
     df_train, df_val = get_splits(df_full)
     
     evaluate_baseline(df_val)
-    for entree in ['DP', 'GVP', 'GMP'] :
+    for entree in ['GVP'] : #'GVP', 'GMP'
         for comp in [False] :
             if (entree == 'DP' or entree == 'GMP') and comp == True :
                 print(f"entree == {entree}, ne support pas le mode compression, entrainement ignoré.\n")
                 continue
-            for res in ['2', '1', '0', '-1'] :
+            for res in ['1'] :
                 if (res == '0' or res == '-1') and entree == 'GMP':
                     print(f"entree == {entree}, ne supporte pas le cas où il n'y a pas d'image BEM en entrée. Entraînement ignoré.\n")
                     continue

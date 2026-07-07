@@ -20,6 +20,7 @@ from tqdm import tqdm
 from Power_models.src.dataloaders import format_data_power, format_f, get_splits
 from Power_models.src.PModels import PowerMLP, ForceEncoder, PowerCNN, PowerDensityLoss
 from training.src.data_loader import format_data
+from core.physics import compute_cp
 from core.models import TorchScaler
 from core.config import CNN_FILTERS_CHOICES
 
@@ -41,7 +42,17 @@ def optimize_PM(df_train, entree, res, comp, n_trials = 1, eps_obj = 1000) :
     #   -----------------------------------   #
     #   Début fonction objectif pour Optuna   #
     #   -----------------------------------   #
-    def objective(trial) :
+    def objective(trial, df_ref = df_train) :
+
+        # Debug
+        scaler_Y = None
+        try : 
+            with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : 
+                scaler_Y = pkl.load(f)
+        except FileNotFoundError :
+            print("\nLe scaler n'a pas été trouvé.\n")
+
+
         lr = trial.suggest_float('lr', 1e-8, 1e-4, log = True)
         dropout_rate = trial.suggest_int('dropout_rate', 0.0, 0.5)
     

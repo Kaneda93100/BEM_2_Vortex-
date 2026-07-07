@@ -58,13 +58,13 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
             Y = P[['Cp_SVEN']].values
         elif res == '1' :       ## Features == [yaw, tsr, BEM] | target = [SVEN-BEM]
             X = P[['yaw', 'TSR', 'Cp_BEM']].values
-            Y = P['Cp_BEM'].values - P['Cp_SVEN'].values
+            Y =  P['Cp_SVEN'].values - P['Cp_BEM'].values
         elif res == '0' :       ## Features == [yaw, tsr] | target = [SVEN]
             X = P[['yaw', 'TSR']].values
             Y = P['Cp_SVEN'].values
         elif res == '-1' :      ## Features == [yaw, tsr] | target = [SVEN - BEM]
             X = P[['yaw', 'TSR']].values
-            Y = P['Cp_BEM'].values - P['Cp_SVEN'].values
+            Y = P['Cp_SVEN'].values - P['Cp_BEM'].values
         Y = Y.reshape(-1,1)
 
 

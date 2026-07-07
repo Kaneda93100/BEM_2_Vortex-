@@ -19,7 +19,7 @@ from tqdm import tqdm
 from Power_models.src.dataloaders import format_data_power
 from Power_models.src.PModels import PowerMLP, PowerCNN
 from core.models import TorchScaler
-from core.physics import compute_cp, convert_v_to_f
+from core.physics import compute_cp, compute_cp_diff, convert_v_to_f
 from Power_models.src.dataloaders import convert_f_to_power
 from training.src.data_loader import format_data
 
@@ -45,7 +45,7 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
 
     X_train, Y_train = format_data_power(df_train, entree, res, comp, device = device)
     X_val, Y_val     = format_data_power(df_val, entree, res, comp, device = device)
-    
+
     ## Récupérer le scaler pour les labels 
     get_scale = f'scaler_Y_{model_name}.pkl' 
     if get_scale != None : 
@@ -139,7 +139,7 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
 
         model.eval()
         pred_raw = model(X_val_cv)
-        if res == '1' or res == '-1' : ## Retirer la composante SVEN du résidu
+        if res == '1' or res == '-1' : ## Retirer la composante BEM du résidu
             pred_raw += Y_val_cv
 
         pred_denorm = scaler_label.fit_transform(pred_raw.detach().to('cpu').numpy())
@@ -193,19 +193,46 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
         preds_raw = model(X_val)
     preds_norm_np = preds_raw.cpu().numpy()
 
-    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : 
-        scaler_Y = pkl.load(f)
-    Y_denorm = scaler_Y.inverse_transform(Y_val.cpu().numpy())
 
+
+    ## Récupérer les données de références pour calculer l'erreur relative et pour ajuster le rédidu si besoins est
     if res == '1' or res == '-1' :
-        pred_denorm = scaler_Y.inverse_transform(preds_norm_np)
-        preds_final = pred_denorm + Y_denorm 
-    else : 
+        if entree == 'DP' : 
+            Y_sven = compute_cp(df_val,'Fn_SVEN', 'Ft_SVEN')['Cp_SVEN'].values
+        elif entree == 'GVP' or entree == 'GMP' :
+            val_group = df_val.groupby(['yaw', 'TSR'])
+
+            dQ = []
+            for (_,_), group in val_group :
+                dQ_az = []
+                f = group[['r','theta','Fn_SVEN', 'Ft_SVEN']]
+                theta_group = f.groupby(['theta'])
+                for (_), blade in theta_group :
+                    blade = blade.sort_values(by = 'r')          
+                    blade = blade[['Fn_SVEN', 'Ft_SVEN']]
+                    torch_dQ = compute_cp_diff(
+                        torch.tensor(blade['Fn_SVEN'].values, dtype = torch.float32, device = 'cpu'),
+                        torch.tensor(blade['Ft_SVEN'].values, dtype = torch.float32, device = 'cpu')
+                    )
+                    dQ_az.append(torch_dQ)
+                dQ_az.append(dQ)
+                dQ = []                   
+            Y_sven = torch.tensor(dQ, dtype = torch.float32, device = 'cpu').numpy().flatten()
+        
+        with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : 
+            scaler_Y = pkl.load(f)
+        pred_denorm = scaler_Y.inverse_transform(preds_norm_np).flatten()
+        cp_bem      = compute_cp(df_val,'Fn_BEM', 'Ft_BEM')['Cp_BEM'].values        
+        preds_final = (pred_denorm + cp_bem)
+    else : ## res == 2 ou 0
+        with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : 
+            scaler_Y = pkl.load(f)
+        Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy())
         preds_final = scaler_Y.inverse_transform(preds_norm_np)
     
-    rmse_pow = np.mean((Y_denorm - preds_final)**2)
-    rel_pow  = (rmse_pow / (np.mean(Y_denorm**2))) * 100 if np.mean(np.abs(Y_denorm)) > 1e-10 else 0
-    wass_power = wasserstein_distance(preds_final.flatten(), Y_denorm.flatten())
+    rmse_pow = np.linalg.norm(Y_sven - preds_final)
+    rel_pow  = (rmse_pow / np.linalg.norm(Y_sven)) * 100 if np.linalg.norm(Y_sven) > 1e-10 else 0
+    wass_power = wasserstein_distance(preds_final.flatten(), Y_sven.flatten())
 
     results_details = {
             "Model": model_name,
