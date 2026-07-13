@@ -47,7 +47,13 @@ def get_u_inf_tensor(df, device='cpu'):
     return torch.tensor(u_inf_list, dtype=torch.float32, device=device)
 
 def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
-    df_res = df.copy()
+    # Les prédictions sont produites dans l'ordre (yaw, [TSR]) puis (theta, r) pour GV
+    # ou (r, theta) pour GM — cf. data_loader.format_data. On doit retrier df dans
+    # le même ordre canonique avant d'assigner les prédictions positionnellement,
+    # sinon preds et vérité terrain ne correspondent plus ligne à ligne.
+    group_keys = ['yaw', 'TSR'] if 'TSR' in df.columns else ['yaw']
+    sort_keys = ['theta', 'r'] if entree == 'GV' else ['r', 'theta']
+    df_res = df.sort_values(group_keys + sort_keys, kind='mergesort').reset_index(drop=True)
     if inter == 'v':
         v_app = df_res['v_app'].values if 'v_app' in df_res.columns else compute_V_app(df_res)
         if str(residuelle) in ['1']:
