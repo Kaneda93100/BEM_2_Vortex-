@@ -218,7 +218,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         mean_val_loss, mean_custom_score, _ = cross_validate(
             X_full=X_trial, Y_full=Y_full, model_class=model_class, model_kwargs=model_kwargs,
             criterion_builder=criterion_builder, epochs=EPOCHS_OPTUNA, lr=lr, n_splits=CV_SPLITS, 
-            device=device, inter=inter, v_bem_phys_full=V_BEM_phys_full, D_phys_full=D_full, v_app_full=V_app_full, u_inf_full=u_inf_full,
+            device=device, inter=inter, v_bem_phys_full=V_BEM_phys_full, D_phys_full=D_full, f_bem_phys_full=F_BEM_phys_full, v_app_full=V_app_full, u_inf_full=u_inf_full,
             compute_metrics_fn=metric_fn, trial=trial
         )
 

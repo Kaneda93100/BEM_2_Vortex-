@@ -45,7 +45,7 @@ class AEPhysicalLoss(nn.Module):
         true_abs = true_D * self.D_tensor
 
         err_abs = pred_abs - true_abs
-        err_norm = (err_abs - self.mean_flat) / self.scale_flat
+        err_norm = err_abs / self.scale_flat
 
         return nn.functional.mse_loss(err_norm, torch.zeros_like(err_norm))
 

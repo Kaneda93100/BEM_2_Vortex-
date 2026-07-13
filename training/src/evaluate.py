@@ -252,7 +252,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     def criterion_builder(train_idx=None, val_idx=None):
         return TurbineLoss(inter=inter, loss_type=option, l1=l1, l2=l2, l3=l3, ae_model=current_ae, scaler_Y=scaler_Y, r_tensor=r_tensor, c_tensor=c_tensor, polar_surrogate=polar_surrogate if inter == 'v' else None, device=device)
 
-    mean_cv_loss, mean_cv_score, std_cv_score = cross_validate(X_full=X_train, Y_full=Y_train, model_class=model_class, model_kwargs=model_kwargs, criterion_builder=criterion_builder, epochs=EPOCHS_FINAL, lr=best_params['lr'], n_splits=CV_SPLITS, device=device, inter=inter, v_bem_phys_full=V_BEM_phys_train, D_phys_full=D_train_full, v_app_full=V_app_full_train, u_inf_full=u_inf_full, compute_metrics_fn=compute_phys_score)
+    mean_cv_loss, mean_cv_score, std_cv_score = cross_validate(X_full=X_train, Y_full=Y_train, model_class=model_class, model_kwargs=model_kwargs, criterion_builder=criterion_builder, epochs=EPOCHS_FINAL, lr=best_params['lr'], n_splits=CV_SPLITS, device=device, inter=inter, v_bem_phys_full=V_BEM_phys_train, D_phys_full=D_train_full, f_bem_phys_full=F_BEM_phys_train, v_app_full=V_app_full_train, u_inf_full=u_inf_full, compute_metrics_fn=compute_phys_score)
     pbar.set_postfix_str(f"CV : {time.perf_counter()-t0:.1f}s")
     pbar.update(1)
 
@@ -260,7 +260,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     t0 = time.perf_counter()
     tqdm.write(f"   [2/2] Entraînement Final...")
     model_final = model_class(**model_kwargs).to(device)
-    model_final, _ = fit_model(model=model_final, X=X_train, Y=Y_train, criterion=criterion_builder(None,None), epochs=EPOCHS_FINAL, lr=best_params['lr'], device=device, inter=inter, v_bem_phys=V_BEM_phys_train, D_phys=D_train_full, v_app=V_app_full_train, u_inf=u_inf_full, show_progress=False)
+    model_final, _ = fit_model(model=model_final, X=X_train, Y=Y_train, criterion=criterion_builder(None,None), epochs=EPOCHS_FINAL, lr=best_params['lr'], device=device, inter=inter, v_bem_phys=V_BEM_phys_train, D_phys=D_train_full, f_bem_phys=F_BEM_phys_train, v_app=V_app_full_train, u_inf=u_inf_full, show_progress=False)
     pbar.set_postfix_str(f"Train : {time.perf_counter()-t0:.1f}s")
     pbar.update(1)
 

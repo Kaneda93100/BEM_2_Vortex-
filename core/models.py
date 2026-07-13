@@ -422,7 +422,7 @@ class TurbineLoss(nn.Module):
         self.polar_surrogate = polar_surrogate.to(device) if polar_surrogate else None
         self.eps_t = 1.0
 
-    def forward(self, preds_raw, Y_true_norm, D_phys=None, v_bem_phys=None, v_app=None, u_inf=None, is_cnn=False):
+    def forward(self, preds_raw, Y_true_norm, D_phys=None, v_bem_phys=None, f_bem_phys=None, v_app=None, u_inf=None, is_cnn=False):
 
         is_cnn_auto = (Y_true_norm.dim() == 4)
 
@@ -492,7 +492,11 @@ class TurbineLoss(nn.Module):
         # ==============================================================
         # STRATÉGIE 'f' (Forces -> Cp/Ct)
         # ==============================================================
-        else: 
+        else:
+            if f_bem_phys is not None:
+                coeffs_pred = coeffs_pred + f_bem_phys
+                coeffs_true = coeffs_true + f_bem_phys
+
             Fn_p_norm, Ft_p_norm = (coeffs_pred[:,0], coeffs_pred[:,1]) if is_cnn_auto else (coeffs_pred[:,0::2], coeffs_pred[:,1::2])
             Fn_t_norm, Ft_t_norm = (coeffs_true[:,0], coeffs_true[:,1]) if is_cnn_auto else (coeffs_true[:,0::2], coeffs_true[:,1::2])
             
