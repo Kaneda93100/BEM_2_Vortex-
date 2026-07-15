@@ -86,7 +86,49 @@ def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
     df_res['Ft_pred'] = ft_pred
     return df_res
 
-def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
+def denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_cnn):
+    if inter == 'v':
+        if is_cnn:
+            preds_coeffs_2d = np.zeros((preds_coeffs.shape[0], 5184))
+            preds_coeffs_2d[:, 0::2] = preds_coeffs[:, 0, :, :].reshape(preds_coeffs.shape[0], -1)
+            preds_coeffs_2d[:, 1::2] = preds_coeffs[:, 1, :, :].reshape(preds_coeffs.shape[0], -1)
+            preds_coeffs = preds_coeffs_2d
+        return reconstruct_predictions(df_test, preds_coeffs, entree, residuelle, inter)
+
+    D_test_np = get_D_tensor(df_test, entree, 'cpu').numpy()
+    if is_cnn:
+        D_exp = np.stack([D_test_np, D_test_np], axis=1)
+        preds_denorm_4d = preds_coeffs * D_exp
+        preds_flat_f = np.zeros((preds_denorm_4d.shape[0], 5184), dtype=np.float32)
+        preds_flat_f[:, 0::2] = preds_denorm_4d[:, 0].reshape(preds_denorm_4d.shape[0], -1)
+        preds_flat_f[:, 1::2] = preds_denorm_4d[:, 1].reshape(preds_denorm_4d.shape[0], -1)
+        preds_denorm = preds_flat_f
+    else:
+        D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1)
+        preds_denorm = preds_coeffs * D_test_flat
+    return reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
+
+def score_ABC(df_res):
+    Fn_p, Ft_p = df_res['Fn_pred'].values, df_res['Ft_pred'].values
+    Fn_s, Ft_s = df_res['Fn_SVEN'].values, df_res['Ft_SVEN'].values
+    D_res = df_res['D_phys'].values
+    m_c = np.sqrt(np.mean(((Fn_p - Fn_s) / np.abs(Fn_s))**2)) * 100
+    m_d = np.sqrt(np.mean(((Ft_p - Ft_s) / np.maximum(np.abs(Ft_s), 1.0))**2)) * 100
+    m_e = np.sqrt(np.mean(((Fn_p/D_res) - (Fn_s/D_res))**2)) * 100
+    m_f = np.sqrt(np.mean(((Ft_p/D_res) - (Ft_s/D_res))**2)) * 100
+
+    cp_ct_pred = compute_cp(df_res, 'Fn_pred', 'Ft_pred').set_index('yaw')
+    Cp_p = df_res['yaw'].map(cp_ct_pred['Cp_pred']).values
+    Ct_p = df_res['yaw'].map(cp_ct_pred['Ct_pred']).values
+    cp_ct_sven = compute_cp(df_res, 'Fn_SVEN', 'Ft_SVEN').set_index('yaw')
+    Cp_s = df_res['yaw'].map(cp_ct_sven['Cp_SVEN']).values
+    Ct_s = df_res['yaw'].map(cp_ct_sven['Ct_SVEN']).values
+    m_i = np.sqrt(np.mean(((Cp_p - Cp_s) / np.abs(Cp_s))**2)) * 100
+    m_j = np.sqrt(np.mean(((Ct_p - Ct_s) / np.abs(Ct_s))**2)) * 100
+
+    return m_c + m_d, m_e + m_f, m_i + m_j
+
+def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, baseline_scores):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     has_plus = '+' in str(residuelle)
     ae_label = "DXY" if has_ae else "D0"
@@ -281,26 +323,20 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
         preds_coeffs = scaler_Y_torch.inverse_transform(preds_norm).cpu().numpy()
 
     df_test['D_phys'] = compute_dynamic_pressure_D(df_test)
-    if inter == 'v':
-        if is_cnn:
-            preds_coeffs_2d = np.zeros((preds_coeffs.shape[0], 5184))
-            preds_coeffs_2d[:, 0::2] = preds_coeffs[:, 0, :, :].reshape(preds_coeffs.shape[0], -1)
-            preds_coeffs_2d[:, 1::2] = preds_coeffs[:, 1, :, :].reshape(preds_coeffs.shape[0], -1)
-            preds_coeffs = preds_coeffs_2d
-        df_res = reconstruct_predictions(df_test, preds_coeffs, entree, residuelle, inter)
-    else:
-        D_test_np = get_D_tensor(df_test, entree, 'cpu').numpy()
-        if is_cnn:
-            D_exp = np.stack([D_test_np, D_test_np], axis=1)  # (n, 2, 36, 72)
-            preds_denorm_4d = preds_coeffs * D_exp
-            preds_flat_f = np.zeros((preds_denorm_4d.shape[0], 5184), dtype=np.float32)
-            preds_flat_f[:, 0::2] = preds_denorm_4d[:, 0].reshape(preds_denorm_4d.shape[0], -1)
-            preds_flat_f[:, 1::2] = preds_denorm_4d[:, 1].reshape(preds_denorm_4d.shape[0], -1)
-            preds_denorm = preds_flat_f
-        else:
-            D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1)
-            preds_denorm = preds_coeffs * D_test_flat
-        df_res = reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
+    df_res = denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_cnn)
+
+    # Borne inf du score pour les modèles à AE : decode(encode(Y_true)) vs Y_true.
+    AE_Score_A = AE_Score_B = AE_Score_C = None
+    if has_ae:
+        with torch.no_grad():
+            y_true_gm = gv_to_gm_format(Y_test) if entree == 'GV' else Y_test
+            y_true_ae_in = y_true_gm.reshape(Y_test.size(0), -1) if ae_nature == 'V' else y_true_gm
+            decoded_true = current_ae.decode(current_ae.encode(y_true_ae_in))
+            preds_norm_ae = adapt_ae_output_to_target(decoded_true, Y_test)
+            preds_coeffs_ae = scaler_Y_torch.inverse_transform(preds_norm_ae).cpu().numpy()
+        df_res_ae = denorm_and_reconstruct(df_test, preds_coeffs_ae, entree, residuelle, inter, is_cnn)
+        AE_Score_A, AE_Score_B, AE_Score_C = score_ABC(df_res_ae)
+
     pbar.set_postfix_str(f"Inférence : {time.perf_counter()-t0:.1f}s")
     pbar.update(1)
 
@@ -330,17 +366,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
     wd_ct = wasserstein_distance(Ct_s, Ct_p)
     wd_total = wasserstein_distance(np.concatenate([Fn_s, Ft_s]), np.concatenate([Fn_p, Ft_p]))
 
-    def calc_scores(fn, ft, df_sub):
-        d = compute_dynamic_pressure_D(df_sub)
-        df_sub['Fn_tmp'], df_sub['Ft_tmp'] = fn, ft
-        c = compute_cp(df_sub, 'Fn_tmp', 'Ft_tmp')
-        cp, ct = df_sub['yaw'].map(c.set_index('yaw')['Cp_tmp']).values, df_sub['yaw'].map(c.set_index('yaw')['Ct_tmp']).values
-        s_a = (np.sqrt(np.mean(((fn - Fn_s) / np.abs(Fn_s))**2)) + np.sqrt(np.mean(((ft - Ft_s) / np.maximum(np.abs(Ft_s), 1.0))**2))) * 100
-        s_b = (np.sqrt(np.mean(((fn/d) - (Fn_s/d))**2)) + np.sqrt(np.mean(((ft/d) - (Ft_s/d))**2))) * 100
-        s_c = (np.sqrt(np.mean(((cp - Cp_s) / np.abs(Cp_s))**2)) + np.sqrt(np.mean(((ct - Ct_s) / np.abs(Ct_s))**2))) * 100
-        return s_a, s_b, s_c
-
-    BEM_A, BEM_B, BEM_C = calc_scores(df_test['Fn_BEM'].values, df_test['Ft_BEM'].values, df_res.copy())
+    BEM_A, BEM_B, BEM_C = baseline_scores['A'], baseline_scores['B'], baseline_scores['C']
     ratios = {'A': BEM_A / Score_A if Score_A > 0 else 0, 'B': BEM_B / Score_B if Score_B > 0 else 0, 'C': BEM_C / Score_C if Score_C > 0 else 0}
     best_metric_AB = max('A', 'B', key=lambda k: ratios[k])
     best_ratio_AB = ratios[best_metric_AB]
@@ -351,7 +377,11 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option):
         torch.save(model_final.state_dict(), f"training/models/{entree}/{final_model_name}.pth")
         print(f"   [SAUVEGARDE] Ratio AB {best_ratio_AB:.2f}x > {RATIO_THRESHOLD}.")
 
-    save_to_xlsx(XLSX_PATH, "recap_details", {"Modele": final_model_name, "Entree": entree, "Residuelle": residuelle, "Inter": inter, "Has_AE": has_ae, "AE_Nature": ae_nature, "AE_Dim": ae_dim, "Option_Loss": option, "L1": round(l1, 2), "L2": round(l2, 2), "L3": round(l3, 2), "Best_Metric": best_metric_AB, "BEM_Ratio_C": round(ratio_C, 2), "Best_BEM_Ratio_AB": round(best_ratio_AB, 2), "CV_Score": round(mean_cv_score, 2), "CV_Var": round(std_cv_score, 2) if std_cv_score else 0.0})
+    save_to_xlsx(XLSX_PATH, "recap_dico", {"Modele": final_model_name, "Entree": entree, "Residuelle": residuelle, "Inter": inter, "Has_AE": has_ae, "AE_Nature": ae_nature, "AE_Dim": ae_dim, "Option_Loss": option, "L1": round(l1, 2), "L2": round(l2, 2), "L3": round(l3, 2)})
+    super_dict = {"Modele": final_model_name, "Best_Metric": best_metric_AB, "BEM_Ratio_C": round(ratio_C, 2), "Best_BEM_Ratio_AB": round(best_ratio_AB, 2), "CV_Score": round(mean_cv_score, 2), "CV_Var": round(std_cv_score, 2) if std_cv_score else 0.0}
+    if has_ae:
+        super_dict.update({"AE_Score_A": round(AE_Score_A, 2), "AE_Score_B": round(AE_Score_B, 2), "AE_Score_C": round(AE_Score_C, 2)})
+    save_to_xlsx(XLSX_PATH, "recap_super", super_dict)
     save_to_xlsx(XLSX_PATH, "recap_Fn", {"Modele": final_model_name, "err_abs_Nm": round(m_a, 4), "err_rel_%": round(m_c, 2), "err_normD_%": round(m_e, 2), "WD_Fn": round(wd_fn, 4)})
     save_to_xlsx(XLSX_PATH, "recap_Ft", {"Modele": final_model_name, "err_abs_Nm": round(m_b, 4), "err_rel_%": round(m_d, 2), "err_normD_%": round(m_f, 2), "WD_Ft": round(wd_ft, 4)})
     save_to_xlsx(XLSX_PATH, "recap_C_P", {"Modele": final_model_name, "err_abs": round(m_g, 6), "err_%": round(m_i, 2), "WD_Cp": round(wd_cp, 6)})
@@ -386,9 +416,11 @@ def evaluate_baselines(df_test):
     wd_total = wasserstein_distance(np.concatenate([Fn_s, Ft_s]), np.concatenate([Fn_b, Ft_b]))
 
     base_dict = {"Modele": "BASELINE_BEM"}
-    save_to_xlsx(XLSX_PATH, "recap_details", {**base_dict, "BEM_Ratio_C": 1.00, "Best_BEM_Ratio_AB": 1.00})
+    save_to_xlsx(XLSX_PATH, "recap_super", {**base_dict, "BEM_Ratio_C": 1.00, "Best_BEM_Ratio_AB": 1.00})
     save_to_xlsx(XLSX_PATH, "recap_Fn", {**base_dict, "err_abs_Nm": round(m_a, 4), "err_rel_%": round(m_c, 2), "err_normD_%": round(m_e, 2), "WD_Fn": round(wd_fn, 4)})
     save_to_xlsx(XLSX_PATH, "recap_Ft", {**base_dict, "err_abs_Nm": round(m_b, 4), "err_rel_%": round(m_d, 2), "err_normD_%": round(m_f, 2), "WD_Ft": round(wd_ft, 4)})
     save_to_xlsx(XLSX_PATH, "recap_C_P", {**base_dict, "err_abs": round(m_g, 6), "err_%": round(m_i, 2), "WD_Cp": round(wd_cp, 6)})
     save_to_xlsx(XLSX_PATH, "recap_C_T", {**base_dict, "err_abs": round(m_h, 6), "err_%": round(m_j, 2), "WD_Ct": round(wd_ct, 6)})
     save_to_xlsx(XLSX_PATH, "recap_globaux", {**base_dict, "Score_A": round(m_c+m_d, 2), "Score_B": round(m_e+m_f, 2), "Score_C": round(m_i+m_j, 2), "WD_Total": round(wd_total, 4)})
+
+    return {'A': m_c + m_d, 'B': m_e + m_f, 'C': m_i + m_j}

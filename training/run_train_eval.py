@@ -12,7 +12,7 @@ def main():
     df_full = load_clean_data()
     df_train, df_test = get_splits(df_full, seed=42)
     
-    evaluate_baselines(df_test)
+    baseline_scores = evaluate_baselines(df_test)
 
     # 1. PRÉ-ENTRAÎNEMENT DE LA BANQUE D'AUTO-ENCODEURS
 
@@ -82,7 +82,7 @@ def main():
         print(f"   [CHRONO] optimize {model_base_name} : {time.perf_counter()-t0:.1f}s")
 
         t0 = time.perf_counter()
-        evaluator(df_train, df_test, entree=e, residuelle=r, inter=i, has_ae=has_ae, option=opt)
+        evaluator(df_train, df_test, entree=e, residuelle=r, inter=i, has_ae=has_ae, option=opt, baseline_scores=baseline_scores)
         print(f"   [CHRONO] evaluator {model_base_name} : {time.perf_counter()-t0:.1f}s")
 
 if __name__ == "__main__":
