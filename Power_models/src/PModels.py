@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from core.config import RHO, KERNEL_SIZE, PADDING_R, PADDING_THETA 
-from core.physics import compute_cp_diff
+from core.physics import compute_density_diff
 from core.models import TorchScaler
 
 import torch

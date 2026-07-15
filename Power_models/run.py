@@ -39,7 +39,7 @@ def run() :
     df_train, df_val = get_splits(df_full)
     
     evaluate_baseline(df_val)
-    for entree in ['GVP'] : #'GVP', 'GMP'
+    for entree in ['GMP'] : #'GVP', 'GMP'
         for comp in [False] :
             if (entree == 'DP' or entree == 'GMP') and comp == True :
                 print(f"entree == {entree}, ne support pas le mode compression, entrainement ignoré.\n")

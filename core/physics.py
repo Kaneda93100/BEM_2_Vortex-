@@ -196,13 +196,11 @@ def compute_cp(df, col_fn, col_ft, R_rotor=R_ROTOR, Nb_pales=3, omega=OMEGA):
     return pd.DataFrame(results)
 
 def compute_density_cp(col_fn, col_ft):
-    if col_fn.shape[0] != 2592 or col_ft.shape[0] != 2592:
-        raise Exception(f"Les arrays d'entrée ne sont pas de bonne dimension.")
     geom = get_geometry()
     
     # 1. Récupérer les distances entre chaque noeuds et les rayons
-    dr_np = np.array(Dist_R*72, dtype = np.float32) #Reshape de la distribution des rayons par azimuth
-    dl_np = np.array(list(dl_map.values())*72, dtype = np.float32)
+    dr_np = np.array(Dist_R, dtype = np.float32) #Reshape de la distribution des rayons par azimuth
+    dl_np = np.array(list(dl_map.values()), dtype = np.float32)
     
     # 2. Angle structurel de la pale (Pitch + Twist) --> Pas besoin d'être auto-diff
     phi_rad = PITCH_RAD + np.array(geom.get_twist_rad(dr_np))
@@ -217,10 +215,8 @@ def compute_density_cp(col_fn, col_ft):
     dQ = dQ_r * dr_np * dl_np
     return dQ
 
-def compute_cp_diff(col_fn:torch.tensor, col_ft:torch.tensor, device) :
+def compute_density_diff(col_fn:torch.tensor, col_ft:torch.tensor, device) :
     
-    if col_fn.shape[1] != 2592 or col_ft.shape[1] != 2592:
-        raise Exception(f"Les tenseurs d'entrée ne sont pas de bonne dimension.")
     if col_fn.device.type != device :
         col_fn = col_fn.to(device)
     if col_ft.device.type != device :
@@ -229,8 +225,8 @@ def compute_cp_diff(col_fn:torch.tensor, col_ft:torch.tensor, device) :
     geom = get_geometry()
     
     # 1. Récupérer les distances entre chaque noeuds et les rayons
-    dr_tens = torch.tensor(Dist_R*72, dtype = torch.float32, device = device) #Reshape de la distribution des rayons par azimuth
-    dl_tens = torch.tensor(list(dl_map.values())*72, dtype = torch.float32, device = device)
+    dr_tens = torch.tensor(Dist_R, dtype = torch.float32, device = device) #Reshape de la distribution des rayons par azimuth
+    dl_tens = torch.tensor(list(dl_map.values()), dtype = torch.float32, device = device)
     
     # 2. Angle structurel de la pale (Pitch + Twist) --> Pas besoin d'être auto-diff
     phi_rad_tens = PITCH_RAD + torch.tensor(geom.get_twist_rad(dr_tens.cpu().numpy()), device = device)

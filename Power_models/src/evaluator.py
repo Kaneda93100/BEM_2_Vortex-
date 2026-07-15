@@ -19,7 +19,7 @@ from tqdm import tqdm
 from Power_models.src.dataloaders import format_data_power
 from Power_models.src.PModels import PowerMLP, PowerCNN
 from core.models import TorchScaler
-from core.physics import compute_cp, compute_cp_diff, convert_v_to_f
+from core.physics import compute_cp, compute_density_diff, compute_density_cp, convert_v_to_f
 from Power_models.src.dataloaders import convert_f_to_power
 from training.src.data_loader import format_data
 
@@ -43,8 +43,8 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
     if saved_name not in all_hps: return
     best_params = all_hps[saved_name]
 
-    X_train, Y_train = format_data_power(df_train, entree, res, comp, device = device)
-    X_val, Y_val     = format_data_power(df_val, entree, res, comp, device = device)
+    X_train, Y_train  = format_data_power(df_train, entree, res, comp, device = device)
+    X_val, Y_val = format_data_power(df_val, entree, res, comp, device = device)
 
     ## Récupérer le scaler pour les labels 
     get_scale = f'scaler_Y_{model_name}.pkl' 
@@ -192,41 +192,46 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
     with torch.no_grad() :
         preds_raw = model(X_val)
     preds_norm_np = preds_raw.cpu().numpy()
-
-
+    
+    ## Récupérer les scalers pour pouvoir ajuster le résidu dans les approches 1 et -1
+    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f :
+        scaler_Y = pkl.load(f)
+    with open(f"Power_models/scalers/scaler_X_{model_name}.pkl", 'rb') as f :
+        scaler_X = pkl.load(f)    
 
     ## Récupérer les données de références pour calculer l'erreur relative et pour ajuster le rédidu si besoins est
     if res == '1' or res == '-1' :
         if entree == 'DP' : 
-            Y_sven = compute_cp(df_val,'Fn_SVEN', 'Ft_SVEN')['Cp_SVEN'].values
-        elif entree == 'GVP' or entree == 'GMP' :
-            val_group = df_val.groupby(['yaw', 'TSR'])
+            ## Vérifier que Y_val == Y_sven
+            X_bem = scaler_X.inverse_transform(X_val.cpu().numpy())[:,2]
+            Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy()).reshape(Y_val.shape[0])
+            Y_sven += X_bem
+            preds_final = np.squeeze(scaler_Y.inverse_transform(preds_norm_np), axis = 1) + X_bem
 
-            dQ = []
-            for (_,_), group in val_group :
-                dQ_az = []
-                f = group[['r','theta','Fn_SVEN', 'Ft_SVEN']]
-                theta_group = f.groupby(['theta'])
-                for (_), blade in theta_group :
-                    blade = blade.sort_values(by = 'r')          
-                    blade = blade[['Fn_SVEN', 'Ft_SVEN']]
-                    torch_dQ = compute_cp_diff(
-                        torch.tensor(blade['Fn_SVEN'].values, dtype = torch.float32, device = 'cpu'),
-                        torch.tensor(blade['Ft_SVEN'].values, dtype = torch.float32, device = 'cpu')
-                    )
-                    dQ_az.append(torch_dQ)
-                dQ_az.append(dQ)
-                dQ = []                   
-            Y_sven = torch.tensor(dQ, dtype = torch.float32, device = 'cpu').numpy().flatten()
-        
-        with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : 
-            scaler_Y = pkl.load(f)
-        pred_denorm = scaler_Y.inverse_transform(preds_norm_np).flatten()
-        cp_bem      = compute_cp(df_val,'Fn_BEM', 'Ft_BEM')['Cp_BEM'].values        
-        preds_final = (pred_denorm + cp_bem)
+        elif entree == 'GVP':
+            ## Vérifier que Y_sven == Y_val 
+            Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy())    
+
+            ## Calculer la valeur de référence
+            eff_bem = scaler_X.inverse_transform(X_val.cpu().numpy())[:,2:][:].reshape((20,72,36,2), order = 'F')
+            dQ_bem_val = np.zeros_like(Y_sven)
+            for i in range(eff_bem.shape[0]):
+                temp = []
+                for j in range(eff_bem.shape[1]):
+                    dQ_az = compute_density_cp(col_fn = eff_bem[i,j,:,0], col_ft = eff_bem[i,j,:,1])
+                    temp.append(dQ_az)
+                temp = np.array(temp).reshape((1,Y_sven.shape[1]))
+                dQ_bem_val[i,:] = temp
+            
+            Y_sven += dQ_bem_val
+
+            ## Réajuster la prédiction
+            preds_denorm = scaler_Y.inverse_transform(preds_norm_np)
+            preds_final = (preds_denorm + dQ_bem_val)
+
+        elif entree == 'GMP' : 
+            x = 0
     else : ## res == 2 ou 0
-        with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f : 
-            scaler_Y = pkl.load(f)
         Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy())
         preds_final = scaler_Y.inverse_transform(preds_norm_np)
     

@@ -67,63 +67,138 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
             Y = P['Cp_SVEN'].values - P['Cp_BEM'].values
         Y = Y.reshape(-1,1)
 
-
     elif entree == 'GVP' :
         df_calc = df.copy()
         grand_group = df_calc.groupby(['yaw', 'TSR'])
         X,Y = [],[]
         
+        ## 1. Fixer une condition métérologique (un couple tsr/yaw)
         for (y_val, tsr_val), group in grand_group :
-            dQ_bem = compute_density_cp(group['Fn_BEM'].values, group['Ft_BEM'].values)
-            dQ_sven = compute_density_cp(group['Fn_SVEN'].values, group['Ft_SVEN'].values)
-            forces_bem = group[['Fn_BEM', 'Ft_BEM']].values.flatten()
+            group_az = group.groupby(['theta'])
+            X_az, dQ_sven = [], []
+            dQ_bem = []
+            
+            ## 2. Fixer un azimuth pour calculer la densité de puissance
+            for (_), blade in group_az :
+                blade = blade.sort_values(by = 'r')
+                
+                feat = blade[['Fn_BEM', 'Ft_BEM']]
+                label = blade[['Fn_SVEN', 'Ft_SVEN']]
+
+                sven_dens = compute_density_cp(
+                        torch.tensor(label['Fn_SVEN'].values, dtype = torch.float32, device = 'cpu'),
+                        torch.tensor(label['Ft_SVEN'].values, dtype = torch.float32, device = 'cpu'),
+                    )
+                bem_dens = compute_density_cp(
+                    torch.tensor(feat['Fn_BEM'].values, dtype = torch.float32, device = 'cpu'),
+                    torch.tensor(feat['Ft_BEM'].values, dtype = torch.float32, device = 'cpu')
+                )
+
+                dQ_bem.append(bem_dens)
+                X_az.append(feat.values.flatten(order = 'F'))
+                dQ_sven.append(sven_dens)
+            
+            dQ_bem = np.array(dQ_bem, dtype = np.float32).flatten()
+            dQ_sven = np.array(dQ_sven, dtype = np.float32).flatten()
+            forces_bem = np.array(X_az, dtype = np.float32).flatten(order = 'F')
 
             if res == '2' :      ## Features == [yaw, tsr, BEM] | target = [SVEN]
                 X_val = np.concatenate(([y_val, tsr_val], forces_bem))
                 Y_val = dQ_sven
             elif res == '1' :    ## 
                 X_val =  np.concatenate(([y_val, tsr_val], forces_bem))
-                Y_val = dQ_bem - dQ_sven
+                Y_val = -dQ_bem + dQ_sven
             elif res == '0' :
                 X_val = [y_val, tsr_val]
                 Y_val = dQ_sven
             elif res == '-1' :
                 X_val = [y_val, tsr_val]
-                Y_val = dQ_bem - dQ_sven
+                Y_val = -dQ_bem + dQ_sven
 
             X.append(X_val)
             Y.append(Y_val)
         
         X, Y = np.array(X), np.array(Y)
-    
+
     elif entree == 'GMP' :
-        df_calc = df.copy()
-        grand_group = df_calc.groupby(['yaw', 'TSR'])
-        X,Y = [],[]
+            """
+            r = np.sort(df_calc['r'].unique())
+            theta = np.sort(df_calc['theta'].unique())
+            for (y_val, tsr_val), group in grand_group :
+                dQ_bem = compute_density_cp(group['Fn_BEM'].values, group['Ft_BEM'].values)
+                dQ_sven = compute_density_cp(group['Fn_SVEN'].values, group['Ft_SVEN'].values)
+                bem_img = group[['Fn_BEM', 'Ft_BEM']].values.reshape(len(r), len(theta),2)
 
-        r = np.sort(df_calc['r'].unique())
-        theta = np.sort(df_calc['theta'].unique())
+                yaw_channel = np.full((len(r), len(theta)),y_val)
+                tsr_channel = np.full((len(r), len(theta)), tsr_val)
 
-        for (y_val, tsr_val), group in grand_group :
-            dQ_bem = compute_density_cp(group['Fn_BEM'].values, group['Ft_BEM'].values)
-            dQ_sven = compute_density_cp(group['Fn_SVEN'].values, group['Ft_SVEN'].values)
-            bem_img = group[['Fn_BEM', 'Ft_BEM']].values.reshape(len(r), len(theta),2)
+                if res == '2' :
+                    Y_val = dQ_sven
+                    X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
+                elif res == '1' :
+                    Y_val = dQ_bem - dQ_sven
+                    X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
+                else :
+                    raise Exception(f"Approche GM sans BEM en entrée non supportée.\n")
+                X.append(X_val)
+                Y.append(Y_val)
+            """
+            
+            ## Caclul des labels (densités de puissance azimutales concaténées en une matrice)
+            df_calc = df.copy()
+            grand_group = df_calc.groupby(['yaw', 'TSR'])
+            X,Y = [],[]
 
-            yaw_channel = np.full((len(r), len(theta)),y_val)
-            tsr_channel = np.full((len(r), len(theta)), tsr_val)
+            r = np.sort(df['r'].unique())
+            theta = np.sort(df['theta'].unique())
+            for (yaw,tsr) , group in grand_group : 
+                
+                yaw_channel = np.full((len(r), len(theta)),yaw)
+                tsr_channel = np.full((len(r), len(theta)), tsr)
 
-            if res == '2' :
-                Y_val = dQ_sven
-                X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
-            elif res == '1' :
-                Y_val = dQ_bem - dQ_sven
-                X_val = np.stack([bem_img[:,:,0], bem_img[:,:,1], yaw_channel, tsr_channel])
-            else :
-                raise Exception(f"Approche GM sans BEM en entrée non supportée.\n")
-            X.append(X_val)
-            Y.append(Y_val)
-        X_np = np.array(X)
-        Y_np = np.array(Y)
+                group_az = group.groupby(['theta'])
+                X_az, dQ_sven, dQ_bem = [], [], []
+                img_bem = np.zeros((len(r), len(theta), 2))
+
+                i = 0
+                for (_), blade in group_az : 
+                    blade = blade.sort_values(by = 'r')
+
+                    feat = blade[['Fn_BEM', 'Ft_BEM']]
+                    label = blade[['Fn_SVEN', 'Ft_SVEN']]
+
+                    sven_dens = compute_density_cp(
+                        torch.tensor(label['Fn_SVEN'].values, dtype = torch.float32, device = 'cpu'),
+                        torch.tensor(label['Ft_SVEN'].values, dtype = torch.float32, device = 'cpu'),
+                    )
+                    bem_dens = compute_density_cp(
+                        torch.tensor(feat['Fn_BEM'].values, dtype = torch.float32, device = 'cpu'),
+                        torch.tensor(feat['Ft_BEM'].values, dtype = torch.float32, device = 'cpu')
+                    )
+
+                    dQ_bem.append(bem_dens)
+                    dQ_sven.append(sven_dens)
+                    
+                    img_bem[:,i,0] = feat['Fn_BEM'].values
+                    img_bem[:,i,1] = feat['Ft_BEM'].values
+                    i += 1
+
+                full_img = np.stack([img_bem[:,:,0], img_bem[:,:,1], yaw_channel, tsr_channel], axis = 0)
+                dQ_sven = np.array(dQ_sven).flatten(order = 'F')
+                dQ_bem = np.array(dQ_bem).flatten(order = 'F')
+
+                if res == '2' :
+                    X_val = full_img
+                    Y_val = np.array(dQ_sven)
+                elif res == '1' :
+                    X_val = full_img
+                    Y_val = dQ_sven - dQ_bem
+
+                X.append(X_val)
+                Y.append(Y_val)
+
+            X_np = np.array(X)
+            Y_np = np.array(Y)
 
 
     ## 2. Normalisation
