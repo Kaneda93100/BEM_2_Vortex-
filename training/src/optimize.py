@@ -9,7 +9,7 @@ from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, Linear
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
-from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR
+from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR, get_ae_residual_key
 
 def get_u_inf_tensor(df, device='cpu'):
     u_inf_list = []
@@ -163,10 +163,10 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         if has_ae:
             ae_nature = trial.suggest_categorical('ae_nature', AE_NATURES)
             ae_dim = trial.suggest_categorical('ae_dim', AE_DIMS)
-            res_base = str(residuelle).replace('+', '')
+            res_base = get_ae_residual_key(residuelle)
             ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
             ae_params = all_ae_params[ae_key]
-            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, device=device).to(device)
+            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_params['ae_depth'], device=device).to(device)
             current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
             current_ae.eval()
             latent_dim = ae_dim
@@ -246,7 +246,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
     })
     
     if has_ae:
-        res_base = str(residuelle).replace('+', '')
+        res_base = get_ae_residual_key(residuelle)
         best_params.update(all_ae_params[f"{res_base}_{inter}_D{best_params['ae_nature']}{best_params['ae_dim']}"])
         
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"

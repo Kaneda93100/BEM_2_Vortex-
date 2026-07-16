@@ -51,8 +51,16 @@ RESIDUELLES = ['0', '1', '2', '2+']
 INTERMS = ['f', 'v']
 OPTIONS = ['A', 'B'] 
 
-AE_NATURES = ['V', 'M']  
+AE_NATURES = ['V', 'M']
 AE_DIMS = [16, 32, 64, 128, 256, 512, 1024]
+AE_LAYERS_BOUNDS = (2, 4)
+
+AE_RESIDUAL_ALIASES = {'2': '0'}
+
+def get_ae_residual_key(residuelle):
+    """ Clé canonique de résiduelle pour la banque d'auto-encodeurs (déduplique '0' et '2'). """
+    res_base = str(residuelle).replace('+', '')
+    return AE_RESIDUAL_ALIASES.get(res_base, res_base)
 
 # =========================================================================
 # HYPERPARAMÈTRES D'ENTRAÎNEMENT & OPTUNA

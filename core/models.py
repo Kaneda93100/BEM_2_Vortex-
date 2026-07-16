@@ -78,20 +78,32 @@ class TurbineCNN(nn.Module):
 # 2. AUTO-ENCODEURS (BANQUE DXY)
 # =========================================================================
 
+def _decreasing_hidden_sizes(in_features, latent_dim, n_layers):
+    """ Suite de tailles de couches cachées, décroissant géométriquement de in_features vers latent_dim. """
+    sizes = np.geomspace(in_features, latent_dim, num=n_layers + 2)[1:-1]
+    return np.round(sizes).astype(int).tolist()
+
 class LinearAutoencoder(nn.Module):
     """ Auto-encodeur pour la stratégie GV (1D) """
-    def __init__(self, in_features=5184, latent_dim=32, device='cpu'):
+    def __init__(self, in_features=5184, latent_dim=32, n_layers=2, device='cpu'):
         super(LinearAutoencoder, self).__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(in_features, 512, device=device), nn.ReLU(),
-            nn.Linear(512, 128, device=device), nn.ReLU(),
-            nn.Linear(128, latent_dim, device=device)
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 128, device=device), nn.ReLU(),
-            nn.Linear(128, 512, device=device), nn.ReLU(),
-            nn.Linear(512, in_features, device=device)
-        )
+        hidden_sizes = _decreasing_hidden_sizes(in_features, latent_dim, n_layers)
+
+        enc_layers = []
+        prev = in_features
+        for h in hidden_sizes:
+            enc_layers += [nn.Linear(prev, h, device=device), nn.ReLU()]
+            prev = h
+        enc_layers.append(nn.Linear(prev, latent_dim, device=device))
+        self.encoder = nn.Sequential(*enc_layers)
+
+        dec_layers = []
+        prev = latent_dim
+        for h in reversed(hidden_sizes):
+            dec_layers += [nn.Linear(prev, h, device=device), nn.ReLU()]
+            prev = h
+        dec_layers.append(nn.Linear(prev, in_features, device=device))
+        self.decoder = nn.Sequential(*dec_layers)
 
     def forward(self, x):
         return self.decoder(self.encoder(x))

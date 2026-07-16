@@ -20,7 +20,9 @@ def main():
     print(" PHASE 1 : PRÉ-ENTRAÎNEMENT DE LA BANQUE D'AUTO-ENCODEURS")
     print("="*80)
     
-    residuelles_ae = ['0', '1', '2']
+    # '2' est omis : il produit la même cible Y (SVEN) que '0', donc le même auto-encodeur
+    # (voir core.config.get_ae_residual_key, utilisé par optimize_and_train_ae pour dédupliquer).
+    residuelles_ae = ['0', '1']
     
     for r, i, nature, dim in itertools.product(residuelles_ae, INTERMS, AE_NATURES, AE_DIMS):
         t0 = time.perf_counter()

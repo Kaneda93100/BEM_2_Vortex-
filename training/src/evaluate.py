@@ -16,8 +16,8 @@ from core.models import (TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, Linea
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import fit_model, cross_validate
 from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
-from core.config import (EPOCHS_FINAL, CV_SPLITS, RATIO_THRESHOLD, RHO, OMEGA, R_ROTOR, 
-                         AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR)
+from core.config import (EPOCHS_FINAL, CV_SPLITS, RATIO_THRESHOLD, RHO, OMEGA, R_ROTOR,
+                         AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, get_ae_residual_key)
 
 XLSX_PATH = "training/performance/recap_scores.xlsx"
 
@@ -48,9 +48,7 @@ def get_u_inf_tensor(df, device='cpu'):
 
 def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
     # Les prédictions sont produites dans l'ordre (yaw, [TSR]) puis (theta, r) pour GV
-    # ou (r, theta) pour GM — cf. data_loader.format_data. On doit retrier df dans
-    # le même ordre canonique avant d'assigner les prédictions positionnellement,
-    # sinon preds et vérité terrain ne correspondent plus ligne à ligne.
+    # ou (r, theta) pour GM.
     group_keys = ['yaw', 'TSR'] if 'TSR' in df.columns else ['yaw']
     sort_keys = ['theta', 'r'] if entree == 'GV' else ['r', 'theta']
     df_res = df.sort_values(group_keys + sort_keys, kind='mergesort').reset_index(drop=True)
@@ -208,11 +206,11 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
             F_BEM_phys_train = fn_ft_sven - fn_ft_delta
 
     if has_ae:
-        res_base = str(residuelle).replace('+', '')
+        res_base = get_ae_residual_key(residuelle)
         ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
         ae_configs = json.load(open(AE_JSON_PATH, "r"))
         ae_config = ae_configs[ae_key]
-        current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, device=device).to(device)
+        current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_config['ae_depth'], device=device).to(device)
         current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
         current_ae.eval()
     else:
