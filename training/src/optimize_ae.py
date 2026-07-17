@@ -155,7 +155,7 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
     final_ae, final_loss = fit_model(
         model=final_ae, X=Y_target, Y=Y_target, criterion=criterion,
         epochs=EPOCHS_AE, lr=best_ae_params['ae_lr'], device=device,
-        inter=cv_inter, D_phys=D_tensor, show_progress=True
+        inter=cv_inter, D_phys=D_tensor if physical_criterion is not None else None, show_progress=True
     )
 
     json_master_path = "training/hyperparametres/ae_hyperparameters.json"
