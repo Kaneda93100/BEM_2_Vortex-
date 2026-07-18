@@ -87,7 +87,12 @@ def main():
     tsr_val = df['TSR'].values if 'TSR' in df.columns else np.full(len(df), 8.0)
     u_vent = (OMEGA * R_ROTOR) / tsr_val
     
-    v_app_sq = (u_vent**2) + (OMEGA * r_vals)**2 - 2 * u_vent * OMEGA * r_vals * np.sin(yaw_rad) * np.cos(theta_rad)
+    v_app_sq = (
+        (u_vent**2)
+        + (OMEGA * r_vals)**2
+        - 2 * u_vent * OMEGA * r_vals * np.sin(yaw_rad) * np.cos(theta_rad)
+        - (u_vent * np.sin(yaw_rad) * np.sin(theta_rad))**2
+    )
     V_app = np.sqrt(v_app_sq)
     
     # 2. Conversion Polaire -> Cartésien
