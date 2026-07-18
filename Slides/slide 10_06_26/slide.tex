@@ -1,0 +1,632 @@
+\documentclass[
+11pt,notheorems,hyperref={pdfauthor=whatever}
+]{beamer}
+
+\input{loadslides.tex} % Loads packages and some defined commands
+
+\title[
+% Text entered here will appear in the bottom middle
+]{Réunion du 12/05/2026}
+
+\subtitle{IFPEN/INRIA}
+
+\author[
+% Text entered here will appear in the bottom left corner
+]{
+    Arthur Timbeau, 
+    Adam Rozentalis,
+    Julien Salomon
+}
+
+
+\AtBeginSection[]{
+  \begin{frame}[plain]
+    \vfill
+    \centering
+    \usebeamerfont{title}\insertsection
+    \vfill
+  \end{frame}
+}
+
+\begin{document}
+
+% Generate title page
+
+\setbeamertemplate{footline}{}
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\setbeamertemplate{footline}{
+  \hfill\insertframenumber/\inserttotalframenumber\hspace{1em}\vspace{0.5em}
+}
+
+\begin{frame}
+    \tableofcontents
+\end{frame}
+
+\section{Contenu du document}
+
+\begin{frame}{Contenu du document}
+    \begin{itemize}
+        \item Rappels sur les travaux précédemment réalisé et présentation des stratégies 
+        \item Bref retour sur quelques approches
+        \item Introduction aux nouvelles méthodes mise en oeuvre et présentation de quelques résultats
+        \item Conclusion
+    \end{itemize}    
+\end{frame}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   Rappels sur les stratégies employés                                             %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Rappels sur les stratégies employées}
+
+\subsection{Corrections locales/Globales}
+
+\begin{frame}{Deux familles de correction}
+    Quatres familles de modèles sont envisagées :
+    \begin{center}
+    \begin{itemize}
+    \item Les corrections \textbf{locales} (L) : les \textcolor{red}{rayons} et les \textcolor{blue}{azimuts} sont des paramètres d’entrés
+    \item Les corrections à rayon fixé ($G_r$ ) : les \textcolor{blue}{azimuts}  sont des paramètres d’entrés.
+    \item Les corrections à azimut fixé ($G_a$ ) : les \textcolor{red}{rayons} sont des paramètres d’entrés
+    \item Les corrections \textbf{globales} (G) : les \textcolor{red}{rayons} et les \textcolor{blue}{azimuts}  sont fixés
+    \end{itemize}
+\end{center}
+\end{frame}
+
+
+\begin{frame}{Approche L}
+    Approche locale : inférences sur les efforts par sections radiale. 
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position radiale $r \in \left[R_{hub}, R\right]$
+            \item Position azimutale $\theta \in \left[0,2\pi\right]$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}$
+            \item Force tangentielle $F_T \in \mathbb{R}$
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Approche $G_r$}
+    Approche à azimut fixé : inférences sur les efforts en fonction d’un angle azimutal sur une grille de p
+    éléments.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position radiale $r \in \left[R_{hub}, R\right]$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^p$
+            \item Force tangentielle $F_T \in \mathbb{R}^p$
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Approche $G_a$}
+    Approche à azimut fixé : inférences sur les efforts en fonction d’un rayon sur une grille de n éléments.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Position azimutale $\theta \in \left[0,2\pi\right]$
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^n$
+            \item Force tangentielle $F_T \in \mathbb{R}^n$
+        \end{itemize}
+    \end{columns}
+\end{frame}
+\begin{frame}{Approche G}
+Approche globale : inférences sur les efforts sur toute les sections de la pale et tous les azimuts.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^{n \times p}$
+            \item Force tangentielle $F_T \in \mathbb{R}^{n \times p}$
+        \end{itemize}
+    \end{columns}    
+\end{frame}
+
+
+\begin{frame}{Résumé}
+    Les grandes familles de correction 
+    \begin{itemize}
+        \item \centering  $L$ :     inputs = $(r, \theta, \Lambda)$     || outputs = $(F_n, F_t) \in \mathbb{R}^2$
+        \item \centering  $G_r$ :   inputs = $(r, \Lambda)$             || outputs = $(\mathbf{F_n}, \mathbf{F_t}) \in \mathbb{R}^{2n}$
+        \item \centering  $G_a$ :   inputs = $(\theta, \Lambda)$        || outputs = $(\mathbf{F_n}, \mathbf{F_t}) \in \mathbb{R}^{2p}$
+        \item \centering  $G$ :     inputs = $(\Lambda)$                || outputs = $(\mathbf{F_n}, \mathbf{F_t}) \in \mathbb{R}^{2np}$
+    \end{itemize}
+
+     \vspace{0.3cm}
+
+     Où $\Lambda$ est un vecteur contenant d'autres paramètres indépendant de la géométrie et de la discrétisation.
+\end{frame}
+
+\subsection{Approche directe/intermédiaire}
+
+\begin{frame}{Approche directe}
+    \textbf{Approche directe} : corriger directement les efforts retournés par la BEM : 
+    
+    \vspace{0.4cm}
+    \begin{center}
+    \begin{tikzpicture}[node distance=1.5cm]
+        \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=1.1cm, align=center]
+            (bem) {Efforts BEM : \\ $\bigl(F_n^{BEM},\, F_t^{BEM}\bigr)$};
+        \node[draw, fill=orange!20, minimum width=2cm, minimum height=1.1cm, align=center, right=1.5cm of bem]
+            (nn)  {NN\\SkyNet};
+        \node[draw, rounded corners, fill=green!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of nn]
+            (skn) {Sorties inférées : \\ $\bigl(F_n^{SKN},\, F_t^{SKN}\bigr)$};
+        \draw[-stealth, line width=2pt] (bem) -- (nn);
+        \draw[-stealth, line width=2pt] (nn)  -- (skn);
+    \end{tikzpicture}
+    \end{center}
+
+    Dans ce cas, le vecteur $\Lambda$ contient les efforts normaux calculés par la BEM (soit une valeur, soit un distribution radiale ou azimutale ou soit 
+    une matrice de $n\times p$ coefficients.)
+\end{frame}
+
+\begin{frame}{Approche intermédiaire}
+    Approche intermédiaire : considérer une variable en amont des efforts (présente dans BEM et FWV) et inférer dessus. 
+
+        \begin{center}
+    \begin{tikzpicture}[node distance=1.5cm]
+        \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=1.1cm, align=center]
+            (bem) {Sorties BEM : \\ $X_{BEM}$};
+        \node[draw, rounded corners, fill=orange!15, minimum width=3cm, minimum height=1.1cm, align=center, right=1.5cm of bem]
+            (var_inter) {Sorties inférées : \\ $\text{SkyNet}(X_{BEM}) = Y_{SKN}$};
+
+        \draw[-stealth, line width=2pt] (bem) -- (var_inter);
+    \end{tikzpicture}
+
+    \vspace{0.3cm}
+    Où $G$ représente les différentes formules permettant de calculer les efforts à partir de la variable inférée.
+
+    \vspace{0.2cm}
+
+    Par exemple, les deux modèles utilisent dans le calcul des efforts la \textbf{vitesse effective} couplé à \textbf{l'angle d'attaque}.
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{BEM :}
+        Au niveau de la section de rayon $r$
+        \begin{itemize}\small
+            \item vitesse effective : $V_{eff} = \sqrt{\left[ U_{\infty}(1-a)^2 + ^\Omega r(1+a')^2\right]}$
+            \item angle d'attaque : $\alpha = \varphi -\left(\beta + \theta_{pitch}\right)$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{FWV :}
+        Au niveau de la section de rayon $r$ 
+        \begin{itemize}\small
+            \item Biot-Savart :  $V_{eff} = \frac{\Gamma(||r_1|| + ||r_2||)(r_1 \times r_2)}{4\pi ||r_1|| \, ||r_2||(||r_1||\,||r_2|| + (r_1 | r_2))}$
+            \item angle d'attaque :  $\alpha = \text{arctan}\bigl(\frac{(u|N)}{(u|T)}\bigr)$
+        \end{itemize}
+    \end{columns}    
+    \end{center}
+\end{frame}
+
+\begin{frame}{Variables d'entrée}
+    Que ce soit pour la variante intermédiaire ou directe, les variables d'entrées de ces modèles ont des entrées BEM 
+    \begin{itemize}
+        \item Sous la forme de scalaires dans l'approche $L$ (soit $ \Lambda \in \mathbb{R}^2$)
+        \item Sous la forme de vecteurs de $n$ coefficients dans l'approche $G_r$ (soit $ \Lambda \in \mathbb{R}^{2n}$)
+        \item Sous la forme de vecteurs de $p$ coefficients dans l'approche $G_a$ (soit $ \Lambda \in \mathbb{R}^{2p}$)
+        \item Sous la forme d'une matrice de $n \times p$ coefficients dans l'approche $G$ (soit $ \Lambda \in \mathbb{R}^{2np}$)
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Stratégies sans BEM : créer un challenger}
+    \begin{center}
+    En parallèle, des modèles émulant directement FWV (sans utiliser d'autre modèle) sont écrits dans le but de challenger les modèles corrigeant la BEM.\\ 
+    Objectif : \textbf{Montrer qu'un réseau de neurones informés par un modèle physique performe mieux qu'un modèle non informé}.
+    \end{center}
+\end{frame}
+
+\begin{frame}{Ensemble des stratégies possible}
+    \begin{center}
+        L'ensemble des stratégies possibles se résume par la formule suivante : 
+        \begin{align*}
+            \bigl(\text{local}, \text{global}\bigr) \times \bigl(\text{Avec BEM}, \text{Sans BEM}\bigr) \times \bigl(\text{Variable intermédiaire}, \text{Directe}\bigr)
+        \end{align*}
+    \end{center}
+\end{frame}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   Update                                                                          %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Update}
+
+\subsection{Échantillonage}
+\begin{frame}
+    Dans le 1er dataset, le yaw et le TSR étaient uniformément répartit, ce qui laissait penser
+    que des biais pouvait s'introduire et entre autres expliquer les belles performances de certains modèles (comme les $G_r$). 
+
+    \vspace{0.3cm}
+
+    Pour pallier à ce problème, les nouveaux couples yaw/tsr ont été échantillonnés selon une méthode LHS (pour \textit{Latin Hypercube Sampling}),
+    permettant d'éviter toutes corrélations et limiter l'introduction de biais.
+\end{frame}
+
+\subsection{Modèles $G_r$ et $G_a$}
+
+\begin{frame}{Problèmes}
+    Les modèles $G_r$ et $G_a$ présentaient plusieurs soucis dans la manière dont ils ont été mis place :
+    
+    \begin{itemize}
+        \item La grille uniformément (répartis azimuth,rayon) entrainait des biais dans la prédiction des modèles
+        \item Pour un temps d'entraînements conséquent, des performances catastrophiques
+    \end{itemize}
+
+    Ainsi, ces deux approches ont été mise de côté. Se faisant, l'ensemble des stratégies se retrouve réduit à 8 types de modèles différents.   
+
+    \vspace{0.2cm}
+
+    Les investigations menées depuis la dernière réunion concernaient essentiellement la stratégie globale pure, ce faisant, les modèles
+    locaux ne seront pas abordés dans la suite de cette présentation.
+
+\end{frame}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   GM & GV                                                                         %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Approches GM et GV}
+
+\subsection{Description}
+
+\begin{frame}{Introduction}
+    L'approche globale à été décliné en 2 nouvelles approches : 
+    \begin{itemize}
+        \item Celle d'avant
+        \item Une issue du Vision Computing
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{GBM}
+    Un arbre aléatoire est une méthode de machine learning ayant déjà fait ses preuves sur les problèmes tabulaires. 
+    
+    \vspace{0.2cm}
+
+    L'idée consiste à créer un arbre (au sens de la théorie des graphes) où chaque noeud est un perceptron. Les poids et biais des perceptrons sont déterminés en résolvant le même genre de problème 
+    d'optimisation que pour un réseau de neurones. 
+   
+    \vspace{0.2cm}
+
+    Ainsi, lorsque l'on veut faire une nouvelle prédiction, l'input parcours l'arbre de décision
+    jusqu'à arriver en bas du graphe et une valeur associée à la région de prédiction lui est associée. 
+   
+    \vspace{0.2cm}
+
+    C'est une méthode de \textit{boosting} (on combine plusieurs perceptron pour créer un modèle utilisé), et GBM est l'acronyme de 
+    \textit{Gradient Boosting Method}, qui consiste en un choix de technique d'entrainement particulier.
+
+    \vspace{0.2cm}
+    
+    Les codes s'appuient sur les codes open source de Microsoft LightGBM qui sont une implémentations des techniques décrites ci-dessus.
+    
+\end{frame}
+
+\begin{frame}{GV}
+    L'approche \textcolor{blue}{G}lobale-\textcolor{blue}{V}ectorielle (\textcolor{blue}{GV}) est un MLP prenant en 
+    entrée un couple yaw/tsr et éventuellement des informations BEM pour prédire un  vecteur de $5184 \text{ }(= 36 \times 72 \times 2)$ dimensions
+    décrivant la répartition des variables cibles sur la grille azimuth/rayon. 
+
+    \vspace{0.3cm}
+
+    Il s'agit essentiellement de l'approche globale connue jusqu'à maintenant.
+\end{frame}
+
+\begin{frame}{GM}
+    L'approche \textcolor{blue}{G}lobale-\textcolor{blue}{M}atricielle (\textcolor{blue}{GM}) consiste en la prédiction de deux matrices de taille
+    $36 \times 72$ décrivant elles aussi la distribution des variables cibles sur la grille. La différence fondamentale entre les
+    deux est l'approche employée : le prédicateur n'est plus un MLP mais un CNN (\textit{Convolution Neural Network}).
+
+    \vspace{0.3cm}
+
+    L'analogie avec le Vision Computing est la suivante : Il s'agit de prédire/générer une image de $36 \times 72$ pixels. 
+    Chaque élément du dataset est alors vu comme 2 images (une pour $F_n \text{ et } F_t$ ou $V_{eff} \text{ et } \alpha$) de $36 \times 72$ pixels. 
+
+\end{frame}
+
+\begin{frame}{Architecture des GV}
+    Les MLP ont une architecture identique à ceux d'avant, à la différence près qu'une compression
+    par un auto-encodeur de la dimension est utilisé afin d'accélérer la procédure d'entraînement 
+    (on diminue le coût de l'entrainement sur les $2592 \times 2$ dimensions avec un auto-encodeur
+    entraîné en amont pour réduire la dimension).
+\end{frame}
+
+
+\begin{frame}{architecture des GM}
+    L'architecture du CNN se construit comme suit : 
+    
+    \vspace{0.2cm}
+
+    \textbf{(I)} - Une première couche de padding est appliquée pour contrôler les valeurs au bord de l'images. Elle permet, entre autres, de contrôler la périodicité dans la dimension azimutale.
+
+    \vspace{0.2cm}
+
+    \textbf{(II)} - Ensuite est appliqué une couche de convolution en 2 dimensions, avec un noyau de taille $3 \times 3$.
+
+    \vspace{0.2cm}
+
+    \textbf{(III)} - On normalise la sortie de la couche de convolution puis elle passe dans un perceptron avec une ReLU comme fonction d'activation.
+
+    \vspace{0.2cm}
+
+    \textbf{(IV)} - Une couche de padding est réappliquée à la sortie de la couche et est reconvertie en la sortie voulue.
+
+    \vspace{0.3cm}
+
+    Comme pour les modèles GV, un auto-encodeur peut être utilisé pour compresser la dimension de la grille.  
+\end{frame}
+
+\begin{frame}{Fonction de perte}
+    Une nouvelle métrique a été utilisé afin d'améliorer les modèles optimisant
+    par rapport à la vitesse et à l'angle d'attaque. 
+    
+    \vspace{0.2cm}
+
+    L'idée est la suivante : au lieu de ne minimiser que la précision du calcul des vitesses, on optimise une combinaison convexe
+    des vitesses et de la force. 
+    
+    \vspace{0.2cm}
+    
+    L'objectif était d'une par d'appréhender l'écriture d'une fonction de perte avec notre framework (PyTorch), et dans un second temps de prendre en compte une baisse de la force lorsque la vitesse effective est calculée près de l'angle de décrochage est atteint. D'autres idées seront explorées. 
+    Les résultats numériques de la section suivante encourage la mise en oeuvre de ce genre de fonction. 
+\end{frame}
+
+\subsection{Performances}
+
+\begin{frame}{Légende des tableaux}
+    \begin{itemize}
+        \item '0' le modèle n'est pas informé par la BEM, '1' le modèle l'est
+        \item 'f' le modèle emploie une stratégie directe, 'v' une stratégie intermédiaire
+        \item 'D' indique la dimension de l'espace latent, par exemple 'D64' indique que l'on est passé de 2592 dimensions à 64
+    \end{itemize}
+    Les colonnes 'Score 150/1000 epochs' synthétisent les scores à un test de validation croisée, la dernière indique la variance dans les prédicition de la validation croisée au bout de 1000 epochs.
+\end{frame}
+
+\subsubsection{Résultats numériques}
+
+\begin{frame}{Résultats numériques : GV}        
+    \tiny
+    \begin{tabular}{| c | c c c c c c c c c c c c | }
+        \hline
+        Modèle & RMSE Fn & RSME Ft & Rel RMSE Fn & Rel RMSE Ft & Wasserstein & Score Total & Score 150 eps & Score 1000 & Variance 1000 eps \\
+        \hline
+        \textcolor{red}{GV\_0\_f\_D0} &4.7297	&4.5542	&2.05	&17.81	&1.5038	&\textcolor{red}{19.85}	&14.79	&16.63	&1.16 \\
+        \textcolor{green}{GV\_0\_f\_D32}&5.5713	&4.0965	&2.41	&16.02	&1.5532	&\textcolor{green}{18.43}	&14.33	&16.22	&1.29\\
+        GV\_0\_f\_D64&4.8915	&4.2535	&2.12	&16.63	&0.9513	&18.75	&13.65	&15.27	&1.76 \\
+        GV\_0\_f\_D128&5.0444	&4.16	&2.18	&16.27	&1.2109	&18.45	&12.93	&13.69	&1.18	\\
+        GV\_0\_f\_D256&6.284	&4.1213	&2.72	&16.11	&1.6115	&18.83	&13.78	&14.84	&2.27 \\
+        \hline
+        \textcolor{red}{GV\_0\_v\_D0}  &4.7558	&3.9443	&2.06	&15.42	&1.0444	&\textcolor{red}{17.48}	&15.92	&16.18	&1.39 \\
+        GV\_0\_v\_D32 &4.3371	&3.4761	&1.88	&13.59	&1.2153	&15.47	&11.04	&11.84	&2.84\\
+        GV\_0\_v\_D64 &4.1416	&3.5437	&1.79	&13.86	&0.8317	&15.65	&10.95	&11.0	&2.88	\\
+        GV\_0\_v\_D128&4.2277	&3.513	&1.83	&13.74	&0.6481	&15.57	&11.59	&12.78	&3.4\\
+        \textcolor{green}{GV\_0\_v\_D256}&4.2494	&3.4791	&1.84	&13.6	&0.6739	&\textcolor{green}{15.44}	&13.24	&12.74	&2.81 \\
+        \hline
+        GV\_1\_f\_D0&4.0659	&3.6196	&1.76	&14.15	&0.5524	&15.91	&15.43	&15.48	&2.39 \\
+        GV\_1\_f\_D32	&3.9572	&3.6151	&1.71	&14.14	&0.6616	&15.85	&13.92	&14.28	&2.14 \\
+        \textcolor{green}{GV\_1\_f\_D64}	&3.7973	&3.5781	&1.64	&13.99	&0.6954	&\textcolor{green}{15.63}	&13.83	&14.29	&2.27 \\
+        GV\_1\_f\_D128	&3.9169	&3.6136	&1.7	&14.13	&0.6711	&15.82	&14.34	&14.3	&1.86 \\
+        \textcolor{red}{GV\_1\_f\_D256}	&3.9126	&3.6564	&1.69	&14.3	&0.6558	&\textcolor{red}{15.99}	&14.02	&14.38	&2.22 \\
+        \hline
+        \textcolor{red}{GV\_1\_v\_D0}  &4.1147	&3.2609	&1.78	&12.75	&0.546	&\textcolor{red}{14.53}	&12.67	&13.04	&2.55 \\
+        \textcolor{green}{GV\_1\_v\_D32} &4.2185	&3.1805	&1.83	&12.44	&0.4894	&\textcolor{green}{14.26}	&12.82	&13.24	&2.08\\
+        GV\_1\_v\_D64  &4.1981	&3.2243	&1.82	&12.61	&0.5936	&14.42	&12.99	&12.1	&3.55	\\
+        GV\_1\_v\_D128&3.9942	&3.2256	&1.73	&12.61	&0.4974	&14.34	&12.26	&13.49	&1.64	\\
+        GV\_1\_v\_D256&4.1824	&3.2326	&1.81	&12.64	&0.518	&14.45	&12.7	&13.57	&1.32\\
+        \hline
+        BASELINE BEM  &22.3797	&6.1036	&9.69	&23.87		&16.5892	&33.55 &-1.0	&-1.0	&-1.0\\
+        \hline
+    \end{tabular}
+
+    \vspace{0.3cm}
+
+    (en \textcolor{red}{rouge}, modèle ayant la moins bonne performance en terme de \underline{score total} dans son groupe, en \textcolor{green}{vert} celui ayant la meilleure)
+
+\end{frame}
+
+\begin{frame}{Commentaires sur les GV}
+    \begin{itemize}
+        \item Que ce soit avec ou sans les informations BEM, ces modèles semblent plus performant dans l'approche intermédiaire que dans l'approche directe (Rappelons qu'une métrique spéciale à été utilisée dans ce cas et que cette observation se base aussi dans les cas où cette métrique n'a pas été utilisée.)
+        \item Les modèles utilisant l'information BEM sont plus performant que ceux de l'utilisant pas (ce qui conforte l'intuition que des modèles informés fonctionnent mieux que des modèles non informés)
+        \item Les modèles ayant réalisé les meilleures performances utilise une information fortement compressée (de 2592 à 256 et moins), ce qui laisse présager que ces techniques sont pertinentes autant d'un point de vue complexité que théoriques. 
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Résultats numériques : GBM}
+    \begin{tabular}{| c | c c c c c c |}
+        \hline
+        Modèle & RMSE Fn & RSME Ft & Rel RMSE Fn & Rel RMSE Ft & Score & Wasser \\
+        \hline        
+        \textcolor{red}{GV\_1\_f\_D32\_LightGBM\_Latent}	&4.2689	&3.3813	&1.85	&13.22	&\textcolor{red}{15.07}	&0.7241 \\
+        \textcolor{green}{GV\_1\_f\_D64\_LightGBM\_Latent}	&4.2466	&3.2978	&1.84	&12.89	&\textcolor{green}{14.73}	&1.0726 \\
+        GV\_1\_f\_D128\_LightGBM\_Latent	&4.012	&3.3382	&1.74	&13.05	&14.79	&0.708 \\
+        \hline
+        \textcolor{red}{GV\_1\_v\_D32\_LightGBM\_Latent}	&6.1483	&3.7916	&2.66	&14.83	&\textcolor{red}{17.49}	&0.739 \\
+        \textcolor{green}{GV\_1\_v\_D64\_LightGBM\_Latent}	&6.0347	&3.5695	&2.61	&13.96	&\textcolor{green}{16.57}	&0.7171 \\
+        GV\_1\_v\_D128\_LightGBM\_Latent	&6.2608	&3.6612	&2.71	&14.32	&17.03	&0.7121 \\
+        \hline
+        BASELINE BEM	&22.3797&6.1036	&9.69	&23.87	&33.55	&-1.0 \\
+        \hline
+    \end{tabular}
+
+    \vspace{0.3cm}
+
+    (en \textcolor{red}{rouge}, modèle ayant la moins bonne performance en terme de \underline{score total} dans son groupe, en \textcolor{green}{vert} celui ayant la meilleure)
+
+\end{frame}
+
+\begin{frame}{Commentaires sur les GBM}
+    \begin{itemize}
+        \item Les GBM sont moins bon que les autres types de modèles en terme d'erreur relative à SVEN, mais quand même bien meilleurs que la BEM.
+        \item Ces derniers semblent également bien réagir à une compression forte.
+        \item Les métriques d'erreur relative et de Wasserstein ne sont plus équivalentes dans leurs cas (voir \textcolor{red}{GV\_1\_f\_D32\_LightGBM\_latent}, il a un meilleur Wasserstein que le D64)  
+    
+    \end{itemize}
+    
+\end{frame}
+
+\begin{frame}{Résultats numériques : GM}
+        \tiny
+        \begin{tabular}{| c | c c c c c c c c c c c | }
+        \hline
+        Modèle & RMSE Fn & RSME Ft & Rel RMSE Fn & Rel RMSE Ft & Wasserstein & Score Total & Score 150 eps & Score 1000 eps & Variance 1000 eps\\
+        \hline
+        \textcolor{green}{GM\_1\_f\_D0}	&3.5651	&2.9024	&1.54	&11.35	&0.9268	&\textcolor{green}{12.89}	&13.56	&12.98	&1.13 \\
+        GM\_1\_f\_D128	&3.8139	&3.2015	&1.65	&12.52	&0.6861	&14.17	&14.02	&14.28	&2.35 \\
+        \textcolor{red}{GM\_1\_f\_D256}	&4.07	&3.4437	&1.76	&13.46	&0.8177	&\textcolor{red}{15.23}	&14.57	&14.45	&1.67	 \\
+        GM\_1\_f\_D512	&4.1213	&3.4041	&1.78	&13.31	&0.8747	&15.09	&14.86	&14.88	&1.86 \\
+        \hline
+        \textcolor{red}{GM\_1\_v\_D0}	&5.3236	&3.504	&2.3	&13.7	&1.2617	&\textcolor{red}{16.01}	&17.49	&14.71	&1.43 \\
+        GM\_1\_v\_D128	&4.8939	&3.0139	&2.12	&11.78	&0.8915	&13.9	&12.41	&12.79	&1.93 \\
+        GM\_1\_v\_D256	&4.9216	&3.047	&2.13	&11.91	&0.7505	&14.04	&12.37	&13.64	&1.78\\
+        \textcolor{green}{GM\_1\_v\_D512}	&4.5084	&3.0222	&1.95	&11.82	&0.5938	&\textcolor{green}{13.77}	&13.22	&12.69	&2.63 \\
+        \hline
+        BASELINE BEM	&22.3797&6.1036	&9.69	&23.87	&16.5892	&33.55 &-1 &-1 &-1 \\
+        \hline
+        \end{tabular}
+
+        \vspace{0.3cm}
+        
+        (en \textcolor{red}{rouge}, modèle ayant la moins bonne performance en terme de \underline{score total} dans son groupe, en \textcolor{green}{vert} celui ayant la meilleure)
+
+    \end{frame}
+
+\begin{frame}{Commentaires sur les GM}
+    \begin{itemize}
+        \item Les modèles GM ont — contrairement au MLP GV — besoins de l'information BEM pour faire une prédiction (il s'agit d'une "correction d'image", donc sans l'image non corrigée le modèle devrait reconstruire lui même l'image des champs de forces VORTEX avec seulement le yaw et le tsr en entrée).
+        \item Par rapport aux GV utilisant l'information BEM, ils performent mieux encore que ces dernier, dans l'approche directe comme intermédiaire.
+        \item Les modèles convolutionnels utilisant l'approche directe réalise la meilleure performances, mais en moyenne les modèles intermédiaires sont plus précis (bien que les performances soient dans l'ensemble assez comparable).
+        \item Les modèles à approche directe fonctionnent significativement moins bien lorsque l'information est compressée, tandis qu'à l'inverse, une forte compression semble donner de meilleur résultat pour les modèles à approche intermédiaire. 
+    \end{itemize}
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   CLL                                                                             %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Conclusion}
+
+\subsection{Conclusion sur les modèles}
+
+\begin{frame}{Conclusion sur les modèles}
+    Les résultats sont très encourageant. L'approche convolutionnelle comme l'approche vectorielle, permettent de considérablement améliorer
+    les sorties de la BEM. De plus, les modèles sans informations sur la BEM sont moins performant que ceux l'utilisant, ce qui 
+    conforte l'idée que partir d'un modèle grossier est utile et permet de mieux approcher un solveur plus fin avec des résultats 
+    satisfaisant.
+\end{frame}
+
+\begin{frame}{Pistes de continuation}
+    La BEM peut être formulé dans une forme non-stationnaire (lorsque l'on considère des phénomènes de turbulence par exemple), ce qui en ferait une version a priori plus précise que la BEM 
+    stationnaire. Un travail sur le solveur QBlade est en cours et aura pour but de générer des données BEM non-stationnaire. 
+
+    \vspace{0.2cm}
+
+    Nous réfléchissons également à de nouvelles métriques (fonction de perte) qui seraient plus pertinente encore
+    que la classique MSE ou que celle expérimentée sur les résultats numériques.
+
+    \vspace{0.2cm}
+
+    Pour les GM, le dataset est composé de 100 images, il pourrait être tout à fait pertinent de l'agrandir 
+    considérablement (de l'ordre de 1000 images par exemple) pour lui permettre de faire de bien meilleures performances.
+
+    \vspace{0.2cm}
+
+    D'autres modèles correctifs de la BEM pourraient être mis en place, afin de continuer à affiner sa précision.
+\end{frame}
+
+\begin{frame}{Merci pour votre attention !}
+    
+\end{frame}
+\end{document}

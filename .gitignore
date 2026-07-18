@@ -1,7 +1,12 @@
 # Ne garder que slides.tex et loadslides.tex
+Slides/slide 01_07_26/*
+!Slides/slide 01_07_26/*tex
 Slides/slide 10_06_26/*
+!Slides/slide 10_06_26/*.tex
 Slides/slide 12_05_26/*
+!Slides/slide 12_05_26/*.tex
 Slides/slide 22_05_26/*
+!Slides/slide 22_05_26/*.tex
 schema_tikz/*
 !schema_tikz/main.tex
 
