@@ -27,7 +27,7 @@ def main():
     df_full = load_clean_data()
     df_train, df_test = get_splits(df_full, seed=42)
     
-    evaluate_baselines(df_test)
+    baseline_scores = evaluate_baselines(df_test)
 
     # 1. PRÉ-ENTRAÎNEMENT DE LA BANQUE D'AUTO-ENCODEURS
 
@@ -35,7 +35,9 @@ def main():
     print(" PHASE 1 : PRÉ-ENTRAÎNEMENT DE LA BANQUE D'AUTO-ENCODEURS")
     print("="*80)
     
-    residuelles_ae = ['0', '1', '2']
+    # '2' est omis : il produit la même cible Y (SVEN) que '0', donc le même auto-encodeur
+    # (voir core.config.get_ae_residual_key, utilisé par optimize_and_train_ae pour dédupliquer).
+    residuelles_ae = ['0', '1']
     
     for r, i, nature, dim in itertools.product(residuelles_ae, INTERMS, AE_NATURES, AE_DIMS):
         t0 = time.perf_counter()
@@ -72,8 +74,8 @@ def main():
         ('GM', '2', 'v', True,  'A'), # Servira de base pour comparer le 2+
         
         # Q6: Apport du mode '+' (Projection dans l'espace latent)
-        ('GM', '2+', 'f', True,  'A'),
-        ('GM', '2+', 'v', True,  'A'),
+        ('GV', '2+', 'f', True,  'A'),
+        ('GV', '2+', 'v', True,  'A'),
     ]
     
     for e, r, i, has_ae, opt in test_models:
@@ -97,7 +99,7 @@ def main():
         print(f"   [CHRONO] optimize {model_base_name} : {time.perf_counter()-t0:.1f}s")
 
         t0 = time.perf_counter()
-        evaluator(df_train, df_test, entree=e, residuelle=r, inter=i, has_ae=has_ae, option=opt)
+        evaluator(df_train, df_test, entree=e, residuelle=r, inter=i, has_ae=has_ae, option=opt, baseline_scores=baseline_scores)
         print(f"   [CHRONO] evaluator {model_base_name} : {time.perf_counter()-t0:.1f}s")
 
 if __name__ == "__main__":

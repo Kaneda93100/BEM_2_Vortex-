@@ -96,8 +96,9 @@ class TurbineCNN(nn.Module):
         
         if use_autoencoder:
             self.final_layer = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
                 nn.Flatten(),
-                nn.Linear(current_channels * self.grid_r * self.grid_theta, latent_dim, device=device)
+                nn.Linear(current_channels, latent_dim, device=device)
             )
         else:
             self.final_layer = nn.Sequential(
@@ -113,20 +114,32 @@ class TurbineCNN(nn.Module):
 # 2. AUTO-ENCODEURS (BANQUE DXY)
 # =========================================================================
 
+def _decreasing_hidden_sizes(in_features, latent_dim, n_layers):
+    """ Suite de tailles de couches cachées, décroissant géométriquement de in_features vers latent_dim. """
+    sizes = np.geomspace(in_features, latent_dim, num=n_layers + 2)[1:-1]
+    return np.round(sizes).astype(int).tolist()
+
 class LinearAutoencoder(nn.Module):
     """ Auto-encodeur pour la stratégie GV (1D) """
-    def __init__(self, in_features=5184, latent_dim=32, device='cpu'):
+    def __init__(self, in_features=5184, latent_dim=32, n_layers=2, device='cpu'):
         super(LinearAutoencoder, self).__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(in_features, 512, device=device), nn.ReLU(),
-            nn.Linear(512, 128, device=device), nn.ReLU(),
-            nn.Linear(128, latent_dim, device=device)
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 128, device=device), nn.ReLU(),
-            nn.Linear(128, 512, device=device), nn.ReLU(),
-            nn.Linear(512, in_features, device=device)
-        )
+        hidden_sizes = _decreasing_hidden_sizes(in_features, latent_dim, n_layers)
+
+        enc_layers = []
+        prev = in_features
+        for h in hidden_sizes:
+            enc_layers += [nn.Linear(prev, h, device=device), nn.ReLU()]
+            prev = h
+        enc_layers.append(nn.Linear(prev, latent_dim, device=device))
+        self.encoder = nn.Sequential(*enc_layers)
+
+        dec_layers = []
+        prev = latent_dim
+        for h in reversed(hidden_sizes):
+            dec_layers += [nn.Linear(prev, h, device=device), nn.ReLU()]
+            prev = h
+        dec_layers.append(nn.Linear(prev, in_features, device=device))
+        self.decoder = nn.Sequential(*dec_layers)
 
     def forward(self, x):
         return self.decoder(self.encoder(x))
@@ -406,19 +419,32 @@ def convert_v_to_f_torch(v_eff, alpha_deg, r_tensor, c_tensor, polar_surrogate, 
 # =========================================================================
 
 def y_to_cnn_format(y: torch.Tensor) -> torch.Tensor:
-    """(N, 5184) -> (N, 2, 36, 72) : format canonique CNN."""
+    """(N, 5184) GM flat (channels-first, r-major) -> (N, 2, 36, 72). Simple reshape."""
     return y.reshape(y.size(0), 2, 36, 72)
 
+def gv_to_gm_format(y: torch.Tensor) -> torch.Tensor:
+    """(N, 5184) GV interleaved (theta-major) -> (N, 2, 36, 72) GM (r-major, channels-first)."""
+    N = y.size(0)
+    y_3d = y.reshape(N, 72, 36, 2)
+    an = y_3d[:, :, :, 0].permute(0, 2, 1)  # (N, 36, 72)
+    at = y_3d[:, :, :, 1].permute(0, 2, 1)
+    return torch.stack([an, at], dim=1)      # (N, 2, 36, 72)
+
 def y_to_mlp_format(y: torch.Tensor) -> torch.Tensor:
-    """(N, 2, 36, 72) -> (N, 5184) : format canonique MLP."""
-    return y.reshape(y.size(0), -1)
+    """(N, 2, 36, 72) GM (r-major, channels-first) -> (N, 5184) GV interleaved (theta-major)."""
+    N = y.size(0)
+    an = y[:, 0].permute(0, 2, 1)           # (N, 72, 36)
+    at = y[:, 1].permute(0, 2, 1)
+    return torch.stack([an, at], dim=3).reshape(N, -1)
 
 def adapt_ae_output_to_target(decoded: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Adapte la sortie décodée de l'AE au format de la cible Y du modèle prédictif."""
     if target.dim() == 4 and decoded.dim() == 2:
-        return y_to_cnn_format(decoded)
+        return y_to_cnn_format(decoded)      # LinearAE GM flat -> GM 4D
     if target.dim() == 2 and decoded.dim() == 4:
-        return y_to_mlp_format(decoded)
+        return y_to_mlp_format(decoded)      # ConvAE GM 4D -> GV interleaved
+    if target.dim() == 2 and decoded.dim() == 2:
+        return y_to_mlp_format(y_to_cnn_format(decoded))  # LinearAE GM flat -> GV interleaved
     return decoded
 
 # =========================================================================
@@ -436,7 +462,15 @@ class TurbineLoss(nn.Module):
         self.l2 = l2
         self.l3 = l3
         
-        self.ae_model = ae_model
+        # NB: on n'assigne pas ae_model via self.ae_model = ... car nn.Module
+        # l'enregistrerait comme sous-module : criterion.train()/.eval() le
+        # basculerait alors en mode train et réactiverait la BatchNorm de l'AE.
+        # object.__setattr__ contourne l'enregistrement tout en gardant l'attribut accessible.
+        object.__setattr__(self, 'ae_model', ae_model)
+        if self.ae_model is not None:
+            self.ae_model.eval()
+            for p in self.ae_model.parameters():
+                p.requires_grad_(False)
         self.scaler_Y = TorchScaler(scaler_Y, device) if scaler_Y else None
         
         self.r_tensor = r_tensor.to(device)
@@ -444,7 +478,7 @@ class TurbineLoss(nn.Module):
         self.polar_surrogate = polar_surrogate.to(device) if polar_surrogate else None
         self.eps_t = 1.0
 
-    def forward(self, preds_raw, Y_true_norm, D_phys=None, v_bem_phys=None, v_app=None, u_inf=None, is_cnn=False):
+    def forward(self, preds_raw, Y_true_norm, D_phys=None, v_bem_phys=None, f_bem_phys=None, v_app=None, u_inf=None, is_cnn=False):
 
         is_cnn_auto = (Y_true_norm.dim() == 4)
 
@@ -514,7 +548,11 @@ class TurbineLoss(nn.Module):
         # ==============================================================
         # STRATÉGIE 'f' (Forces -> Cp/Ct)
         # ==============================================================
-        else: 
+        else:
+            if f_bem_phys is not None:
+                coeffs_pred = coeffs_pred + f_bem_phys
+                coeffs_true = coeffs_true + f_bem_phys
+
             Fn_p_norm, Ft_p_norm = (coeffs_pred[:,0], coeffs_pred[:,1]) if is_cnn_auto else (coeffs_pred[:,0::2], coeffs_pred[:,1::2])
             Fn_t_norm, Ft_t_norm = (coeffs_true[:,0], coeffs_true[:,1]) if is_cnn_auto else (coeffs_true[:,0::2], coeffs_true[:,1::2])
             

@@ -1,4 +1,3 @@
-# training/src/optimize_ae.py
 import optuna
 import json
 import torch
@@ -10,8 +9,8 @@ from sklearn.preprocessing import StandardScaler
 
 from core.models import ConvolutionalAutoencoder, LinearAutoencoder, TorchScaler
 from training.src.data_loader import format_data, get_D_tensor
-from training.src.trainer import fit_model
-from core.config import EPOCHS_AE, TRIALS_AE, LR_BOUNDS
+from training.src.trainer import fit_model, cross_validate
+from core.config import EPOCHS_AE, TRIALS_AE, LR_BOUNDS, CV_SPLITS, AE_LAYERS_BOUNDS, get_ae_residual_key
 
 class AEPhysicalLoss(nn.Module):
     """
@@ -19,10 +18,9 @@ class AEPhysicalLoss(nn.Module):
     puis renormalisant par l'écart-type global pour garder un gradient stable.
     Opère toujours sur le format canonique GM (indépendant de l'entrée du modèle prédictif).
     """
-    def __init__(self, scaler_Y, scaler_F_abs, D_tensor, is_cnn_for_ae, device):
+    def __init__(self, scaler_Y, scaler_F_abs, out_dim, is_cnn_for_ae, device):
         super().__init__()
         self.scaler_Y = TorchScaler(scaler_Y, device)
-        self.D_tensor = D_tensor.to(device)
 
         mean_abs = torch.tensor(scaler_F_abs.mean_, dtype=torch.float32, device=device)
         scale_abs = torch.tensor(scaler_F_abs.scale_, dtype=torch.float32, device=device)
@@ -33,19 +31,19 @@ class AEPhysicalLoss(nn.Module):
             self.scale_flat = scale_abs.view(1, 2, 1, 1)
         else:
             # Format canonique MLP aplati (N, 5184) : [Fn_1...Fn_2592, Ft_1...Ft_2592]
-            half_len = self.D_tensor.shape[1] // 2
+            half_len = out_dim // 2
             self.mean_flat = torch.cat([mean_abs[0].repeat(half_len), mean_abs[1].repeat(half_len)])
             self.scale_flat = torch.cat([scale_abs[0].repeat(half_len), scale_abs[1].repeat(half_len)])
 
-    def forward(self, y_pred_norm, y_true_norm):
+    def forward(self, y_pred_norm, y_true_norm, D_phys):
         pred_D = self.scaler_Y.inverse_transform(y_pred_norm)
         true_D = self.scaler_Y.inverse_transform(y_true_norm)
 
-        pred_abs = pred_D * self.D_tensor
-        true_abs = true_D * self.D_tensor
+        pred_abs = pred_D * D_phys
+        true_abs = true_D * D_phys
 
         err_abs = pred_abs - true_abs
-        err_norm = (err_abs - self.mean_flat) / self.scale_flat
+        err_norm = err_abs / self.scale_flat
 
         return nn.functional.mse_loss(err_norm, torch.zeros_like(err_norm))
 
@@ -54,8 +52,8 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     suffixe = f"D{ae_nature}{latent_dim}"
-    # Le nom de l'AE ne dépend pas de l'entrée : il compresse uniquement l'espace cible Y
-    saved_name = f"{residuelle}_{inter}_{suffixe}"
+    ae_res_key = get_ae_residual_key(residuelle)
+    saved_name = f"{ae_res_key}_{inter}_{suffixe}"
 
     os.makedirs("training/hyperparametres", exist_ok=True)
     os.makedirs("training/models/ae", exist_ok=True)
@@ -107,53 +105,57 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
             D_flat = D_tensor.reshape(-1, 36 * 72)
             D_tensor = torch.cat([D_flat, D_flat], dim=1)
 
-        physical_criterion = AEPhysicalLoss(scaler_Y, scaler_F_abs, D_tensor, is_cnn_for_ae, device)
+        physical_criterion = AEPhysicalLoss(scaler_Y, scaler_F_abs, out_dim, is_cnn_for_ae, device)
+
+
+    cv_inter = 'f' if physical_criterion is not None else None
 
     def objective_ae(trial):
         lr = trial.suggest_float('ae_lr', LR_BOUNDS[0], LR_BOUNDS[1], log=True)
+        n_layers = trial.suggest_int('ae_depth', AE_LAYERS_BOUNDS[0], AE_LAYERS_BOUNDS[1])
 
         if is_cnn_for_ae:
-            depth = trial.suggest_int('ae_depth', 2, 4)
             base_filters = trial.suggest_categorical('ae_base_filters', [8, 16, 32])
-            model = ConvolutionalAutoencoder(in_channels=out_dim, latent_dim=latent_dim, depth=depth, base_filters=base_filters, device=device).to(device)
-            trial.set_user_attr('ae_depth', depth)
-            trial.set_user_attr('ae_base_filters', base_filters)
+            model_class = ConvolutionalAutoencoder
+            model_kwargs = {'in_channels': out_dim, 'latent_dim': latent_dim, 'depth': n_layers, 'base_filters': base_filters, 'device': device}
         else:
-            model = LinearAutoencoder(in_features=out_dim, latent_dim=latent_dim, device=device).to(device)
+            model_class = LinearAutoencoder
+            model_kwargs = {'in_features': out_dim, 'latent_dim': latent_dim, 'n_layers': n_layers, 'device': device}
 
         criterion = physical_criterion if physical_criterion is not None else nn.MSELoss()
 
-        _, best_val_loss = fit_model(
-            model=model, X=Y_target, Y=Y_target, criterion=criterion,
-            epochs=EPOCHS_AE, lr=lr, device=device, show_progress=False, trial=trial
+        mean_val_loss, _, _ = cross_validate(
+            X_full=Y_target, Y_full=Y_target, model_class=model_class, model_kwargs=model_kwargs,
+            criterion_builder=lambda train_idx, val_idx: criterion,
+            epochs=EPOCHS_AE, lr=lr, n_splits=CV_SPLITS, device=device,
+            inter=cv_inter, D_phys_full=D_tensor if physical_criterion is not None else None,
+            trial=trial
         )
-        return best_val_loss
+        return mean_val_loss
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     pruner = optuna.pruners.MedianPruner(n_warmup_steps=10)
     study_ae = optuna.create_study(direction='minimize', pruner=pruner)
-    print(f"   [1/2] Recherche Optuna pour l'architecture AE ({n_trials} trials)...")
+    print(f"   [1/2] Recherche Optuna (validation croisée, {CV_SPLITS} folds) pour l'architecture AE ({n_trials} trials)...")
     study_ae.optimize(objective_ae, n_trials=n_trials, show_progress_bar=True)
 
     best_ae_params = study_ae.best_params
     best_ae_params.update({'use_autoencoder': True, 'latent_dim': latent_dim})
-    if is_cnn_for_ae:
-        best_ae_params['ae_depth'] = study_ae.best_trial.user_attrs['ae_depth']
-        best_ae_params['ae_base_filters'] = study_ae.best_trial.user_attrs['ae_base_filters']
 
     print(f"   -> Meilleurs paramètres trouvés : {best_ae_params}")
 
-    print(f"   [2/2] Entraînement de l'AE final ({EPOCHS_AE} époques)...")
+    print(f"   [2/2] Entraînement de l'AE final sur l'ensemble d'entraînement complet ({EPOCHS_AE} époques)...")
     criterion = physical_criterion if physical_criterion is not None else nn.MSELoss()
 
     if is_cnn_for_ae:
         final_ae = ConvolutionalAutoencoder(in_channels=out_dim, latent_dim=latent_dim, depth=best_ae_params['ae_depth'], base_filters=best_ae_params['ae_base_filters'], device=device).to(device)
     else:
-        final_ae = LinearAutoencoder(in_features=out_dim, latent_dim=latent_dim, device=device).to(device)
+        final_ae = LinearAutoencoder(in_features=out_dim, latent_dim=latent_dim, n_layers=best_ae_params['ae_depth'], device=device).to(device)
 
     final_ae, final_loss = fit_model(
         model=final_ae, X=Y_target, Y=Y_target, criterion=criterion,
-        epochs=EPOCHS_AE, lr=best_ae_params['ae_lr'], device=device, show_progress=True
+        epochs=EPOCHS_AE, lr=best_ae_params['ae_lr'], device=device,
+        inter=cv_inter, D_phys=D_tensor if physical_criterion is not None else None, show_progress=True
     )
 
     json_master_path = "training/hyperparametres/ae_hyperparameters.json"

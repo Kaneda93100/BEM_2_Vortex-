@@ -1,14 +1,15 @@
+import gc
 import optuna
 import json
 import torch
 import os
 import numpy as np
 import pickle
-from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, adapt_ae_output_to_target
+from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, LinearAutoencoder, PolarSurrogate, TurbineLoss, TorchScaler, convert_v_to_f_torch, adapt_ae_output_to_target, gv_to_gm_format
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
-from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR
+from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR, get_ae_residual_key
 
 def get_u_inf_tensor(df, device='cpu'):
     u_inf_list = []
@@ -162,12 +163,14 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         if has_ae:
             ae_nature = trial.suggest_categorical('ae_nature', AE_NATURES)
             ae_dim = trial.suggest_categorical('ae_dim', AE_DIMS)
-            res_base = str(residuelle).replace('+', '')
+            res_base = get_ae_residual_key(residuelle)
             ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
             ae_params = all_ae_params[ae_key]
-            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, device=device).to(device)
+            current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_params['ae_depth'], device=device).to(device)
             current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
             current_ae.eval()
+            for p in current_ae.parameters():
+                p.requires_grad_(False)
             latent_dim = ae_dim
         else:
             current_ae, latent_dim, ae_nature, ae_dim = None, 0, 'None', 0
@@ -176,7 +179,9 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         if has_plus and current_ae is not None:
             with torch.no_grad():
                 if entree == 'GV':
-                    z_bem = current_ae.encode(Y_bem_full)
+                    y_bem_cnn = gv_to_gm_format(Y_bem_full)
+                    y_bem_input = y_bem_cnn.reshape(Y_bem_full.size(0), -1) if ae_nature == 'V' else y_bem_cnn
+                    z_bem = current_ae.encode(y_bem_input)
                     X_trial = torch.cat([X_full[:, :n_scalaires_full], z_bem], dim=1)
                 else:  # GM
                     y_bem_input = Y_bem_full.reshape(Y_bem_full.size(0), -1) if ae_nature == 'V' else Y_bem_full
@@ -215,7 +220,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         mean_val_loss, mean_custom_score, _ = cross_validate(
             X_full=X_trial, Y_full=Y_full, model_class=model_class, model_kwargs=model_kwargs,
             criterion_builder=criterion_builder, epochs=EPOCHS_OPTUNA, lr=lr, n_splits=CV_SPLITS, 
-            device=device, inter=inter, v_bem_phys_full=V_BEM_phys_full, D_phys_full=D_full, v_app_full=V_app_full, u_inf_full=u_inf_full,
+            device=device, inter=inter, v_bem_phys_full=V_BEM_phys_full, D_phys_full=D_full, f_bem_phys_full=F_BEM_phys_full, v_app_full=V_app_full, u_inf_full=u_inf_full,
             compute_metrics_fn=metric_fn, trial=trial
         )
 
@@ -223,7 +228,13 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         trial.set_user_attr("ae_nature", ae_nature)
         trial.set_user_attr("ae_dim", ae_dim)
         trial.set_user_attr("l1", l1); trial.set_user_attr("l2", l2); trial.set_user_attr("l3", l3)
-        return mean_custom_score 
+        del criterion_builder, metric_fn
+        if has_ae:
+            current_ae.cpu()
+            del current_ae
+        gc.collect()
+        torch.cuda.empty_cache()
+        return mean_custom_score
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study_model = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner(n_warmup_steps=PRUNER_WARMUP))
@@ -237,7 +248,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
     })
     
     if has_ae:
-        res_base = str(residuelle).replace('+', '')
+        res_base = get_ae_residual_key(residuelle)
         best_params.update(all_ae_params[f"{res_base}_{inter}_D{best_params['ae_nature']}{best_params['ae_dim']}"])
         
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"

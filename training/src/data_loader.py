@@ -55,7 +55,7 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
     """
     Formatte les entrées X et les cibles Y.
     - residuelle '0' : Y = SVEN, X = scalaires
-    - residuelle '1' : Y = SVEN - BEM, X = scalaires
+    - residuelle '1' : Y = SVEN - BEM, X = scalaires + matrice BEM
     - residuelle '2' (ou '2+') : Y = SVEN, X = scalaires + matrice BEM
     """
     res_str = str(residuelle).replace('+', '') # On extrait le chiffre pur (0, 1 ou 2)

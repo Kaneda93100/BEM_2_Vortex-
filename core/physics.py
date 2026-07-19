@@ -237,9 +237,14 @@ def compute_V_app(df):
     u_vent = (OMEGA * R_ROTOR) / tsr_val
     r_val = df['r'].values
     
-    # Formule mathématique de V_app au carré
-    v_app_sq = (u_vent**2) + (OMEGA * r_val)**2 - 2 * u_vent * OMEGA * r_val * np.sin(yaw_rad) * np.cos(theta_rad)
-    
+    # Formule mathématique de V_app au carré (projection dans le plan local (n,t) de la section)
+    v_app_sq = (
+        (u_vent**2)
+        + (OMEGA * r_val)**2
+        - 2 * u_vent * OMEGA * r_val * np.sin(yaw_rad) * np.cos(theta_rad)
+        - (u_vent * np.sin(yaw_rad) * np.sin(theta_rad))**2
+    )
+
     return np.sqrt(v_app_sq)
 
 def compute_dynamic_pressure_D(df):
