@@ -203,6 +203,8 @@ class SimEnv :
 
         return df
 
+## Utilitaires pour la classe SimEnv
+
 def easy_plot(df, attr_x:str, attr_y:str, yaw_index:int = 10, indexs:list = [4, 17, 30], savefig = False) :
     print(f"\nAffichage de {attr_y} en fonction de {attr_x}\n")
 
@@ -267,7 +269,6 @@ def easy_plot(df, attr_x:str, attr_y:str, yaw_index:int = 10, indexs:list = [4, 
             fig.savefif(fig_dir/fig_name)
     plt.subplots_adjust(hspace = 0.3)
     return fig
-
 def compute_inflow_aoa(solver, Ux, Uy, angle):
         uxRelative = Ux * (1.0 - solver._axial_induction)
         uthetaRelative = Uy * (1.0 + solver._tangential_induction)
@@ -337,7 +338,6 @@ def contribution(SimEnv:SimEnv, azimuth:float, pos:int) :
     Cd = SimEnv.solver._funDrag
 
     return ((8*hub_tip_loss*loc_tsr**3)/TSR) * at*(1-ai) * (1 - (Cd(phi - loc_twist)/Cl(phi-loc_twist))*1/np.tan(phi))
-
 def compute_power(SimEnv:SimEnv, azimuth:float) :
     """
     Calcul de Cp (coefficient de puissance) en intégrant selon le rayon 
@@ -360,8 +360,7 @@ def compute_power(SimEnv:SimEnv, azimuth:float) :
         integral += (sections[i+1]-sections[i])*mid_pow
 
     return integral*SimEnv.omega/SimEnv.U    
-
-def compute__total_power(SimEnv:SimEnv, azimuths:list) :
+def compute_total_power(SimEnv:SimEnv, azimuths:list) :
     """
     Fonction qui calcule la puissance pour tous les azimuths de la révolution de l'éolienne.
     Cette puissance totale est calculé comme la somme des puissances sur chaque azimuts.
@@ -379,4 +378,4 @@ def compute__total_power(SimEnv:SimEnv, azimuths:list) :
 
     return power
 
-## Implémenter divers tests unitaires pour détecter des incohérences dans les données
+## TODO : Implémenter divers tests unitaires pour détecter des incohérences dans les données
