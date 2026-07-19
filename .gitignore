@@ -2,9 +2,18 @@
 Slides/slide 10_06_26/*
 Slides/slide 12_05_26/*
 Slides/slide 22_05_26/*
+Slides/slide 01_07_26/*
+schema_tikz/*
 
-# Environnement virtuel
-B2V
+# Dossier bemol
+
+bemol/DataMaker/merged/*
+bemol/DataMaker/new_data_sven/*
+bemol/DataMaker/exports/*
+bemol/DataMaker/src/exports/Data
+bemol/DataMaker/main.py
+bemol/DataMaker/debug.py
+bemol/DataMaker/src/PNC.py
 
 # --- Sorties et fichiers générés ---
 images/
