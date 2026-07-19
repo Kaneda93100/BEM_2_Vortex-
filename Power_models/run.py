@@ -13,7 +13,7 @@ import pathlib as P
 import pandas as pd
 from time import perf_counter
 
-path_data = P.Path('data/raw/fichier_forces.csv')
+path_data = P.Path('data/100/raw/fichier_forces.csv')
 
 eps_obj     = 5
 n_trials    = 10

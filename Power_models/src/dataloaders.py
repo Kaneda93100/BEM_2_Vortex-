@@ -241,8 +241,8 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
             with open(path_y, 'rb') as f :
                 scaler_Y = pkl.load(f)
             
-            X_scaled = scaler_X.fit_transform(X_np)
-            Y_scaled = scaler_Y.fit_transform(Y_np)
+            X_scaled = scaler_X.transform(X_np)
+            Y_scaled = scaler_Y.transform(Y_np)
         else :
             print("Aucun scaler n'a été trouvé. Ils vont être calculés.\n")
             scaler_X = StandardScaler()
