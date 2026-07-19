@@ -213,6 +213,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
         current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_config['ae_depth'], device=device).to(device)
         current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
         current_ae.eval()
+        for p in current_ae.parameters():
+            p.requires_grad_(False)
     else:
         current_ae = None
 

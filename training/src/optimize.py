@@ -169,6 +169,8 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
             current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_params['ae_depth'], device=device).to(device)
             current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
             current_ae.eval()
+            for p in current_ae.parameters():
+                p.requires_grad_(False)
             latent_dim = ae_dim
         else:
             current_ae, latent_dim, ae_nature, ae_dim = None, 0, 'None', 0

@@ -426,7 +426,15 @@ class TurbineLoss(nn.Module):
         self.l2 = l2
         self.l3 = l3
         
-        self.ae_model = ae_model
+        # NB: on n'assigne pas ae_model via self.ae_model = ... car nn.Module
+        # l'enregistrerait comme sous-module : criterion.train()/.eval() le
+        # basculerait alors en mode train et réactiverait la BatchNorm de l'AE.
+        # object.__setattr__ contourne l'enregistrement tout en gardant l'attribut accessible.
+        object.__setattr__(self, 'ae_model', ae_model)
+        if self.ae_model is not None:
+            self.ae_model.eval()
+            for p in self.ae_model.parameters():
+                p.requires_grad_(False)
         self.scaler_Y = TorchScaler(scaler_Y, device) if scaler_Y else None
         
         self.r_tensor = r_tensor.to(device)
