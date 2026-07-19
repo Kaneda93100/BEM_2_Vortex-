@@ -230,9 +230,10 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
 
     elif entree == 'GMP':
         ## Applatir l'image sur tous les canaux pour normaliser
+        X_debug = X_np
         X_original_shape = X_np.shape
         X_np = X_np.reshape((X_np.shape[0], X_np.shape[1]*X_np.shape[2]*X_np.shape[3]))
-
+        
         if scaler_exist :
             print("\n Des scalers ont été trouvé.\n")
             with open(path_x, 'rb') as f :
@@ -256,7 +257,7 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
                 pkl.dump(scaler_Y,f)
 
         X_scaled = X_scaled.reshape(X_original_shape)
-        
+        #pkl.dump(scaler_X, 'Power_models/Xval_scaler_debug.pkl')
     X_tensor = torch.tensor(X_scaled, dtype = torch.float32, device = device)
     Y_tensor = torch.tensor(Y_scaled, dtype = torch.float32, device = device)
     
@@ -277,6 +278,9 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
                 compressor.eval()
                 X_tensor = compressor.encode(X_tensor).detach()
     
+    with open("Power_models/Xval_scaler_debug.pkl", 'rb') as f : 
+        scaler_debug = pkl.load(f)
+
     return X_tensor, Y_tensor
 
 def format_f(df, scaler_exist = False) :

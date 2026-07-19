@@ -46,6 +46,16 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
     X_train, Y_train  = format_data_power(df_train, entree, res, comp, device = device)
     X_val, Y_val = format_data_power(df_val, entree, res, comp, device = device)
 
+    shape  = X_val.cpu().numpy().shape
+    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f :
+        scaler_Y = pkl.load(f)
+    with open(f"Power_models/scalers/scaler_X_{model_name}.pkl", 'rb') as f :
+        scaler_X = pkl.load(f) 
+
+    with open(f"Power_models/Xval_scaler_debug.pkl", 'rb') as f : scaler_debug = pkl.load(f)
+
+    
+
     ## Récupérer le scaler pour les labels 
     get_scale = f'scaler_Y_{model_name}.pkl' 
     if get_scale != None : 
@@ -202,14 +212,14 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
     ## Récupérer les données de références pour calculer l'erreur relative et pour ajuster le rédidu si besoins est
     if res == '1' or res == '-1' :
         if entree == 'DP' : 
-            ## Vérifier que Y_val == Y_sven
+            ## Vérifier que Y_val == Y_sven (done)
             X_bem = scaler_X.inverse_transform(X_val.cpu().numpy())[:,2]
             Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy()).reshape(Y_val.shape[0])
             Y_sven += X_bem
             preds_final = np.squeeze(scaler_Y.inverse_transform(preds_norm_np), axis = 1) + X_bem
 
         elif entree == 'GVP':
-            ## Vérifier que Y_sven == Y_val 
+            ## Vérifier que Y_sven == Y_val (done)
             Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy())    
 
             ## Calculer la valeur de référence
@@ -230,7 +240,32 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
             preds_final = (preds_denorm + dQ_bem_val)
 
         elif entree == 'GMP' : 
-            x = 0
+            ## Dénormalisation :
+            X_val = X_val.cpu().numpy()
+            shape = X_val.shape
+            X_denorm = X_val.reshape((shape[0], -1), order = 'F')
+            X_denorm = scaler_X.inverse_transform(X_denorm)
+            X_denorm = X_denorm.reshape((shape), order = 'F')[:,0:2,:,:]
+            Y_denorm = scaler_Y.inverse_transform(Y_val.cpu().numpy())
+
+            ## Récupérer la densité BEM pour ajuster le résidu
+            dQs = []
+            for i in range(shape[0]) :
+                dQ = []
+                for j in range(shape[3]) :
+                    dQ_bem = compute_density_cp(X_denorm[i,0,:,j], X_denorm[i,1,:,j])
+                    dQ.append(dQ_bem)
+                dQ = np.array(dQ).flatten(order = 'F')
+                dQs.append(dQ)
+            
+            dQs = np.array(dQs)
+            
+            ## Réajuster le résidu 
+
+            preds_final = scaler_Y.inverse_transform(preds_raw.cpu().numpy())
+            preds_final += dQs
+            Y_sven = Y_denorm + dQs
+
     else : ## res == 2 ou 0
         Y_sven = scaler_Y.inverse_transform(Y_val.cpu().numpy())
         preds_final = scaler_Y.inverse_transform(preds_norm_np)

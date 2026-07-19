@@ -15,11 +15,11 @@ from time import perf_counter
 
 path_data = P.Path('data/raw/fichier_forces.csv')
 
-eps_obj     = 50
+eps_obj     = 5
 n_trials    = 10
 
-eps_cv      = 1000
-eps_train   = 1000
+eps_cv      = 1
+eps_train   = 1
 
 def run() : 
     glob_start = perf_counter()
