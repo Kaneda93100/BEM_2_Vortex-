@@ -8,6 +8,9 @@ Slides/slide 12_05_26/*
 Slides/slide 22_05_26/*
 !Slides/slide 22_05_26/*.tex
 
+Power_models/models/DP/*.pth
+Power_models/models/GVP/*.pth
+Power_models/models/GMP/*.pth
 
 schema_tikz/*
 !schema_tikz/main.tex
