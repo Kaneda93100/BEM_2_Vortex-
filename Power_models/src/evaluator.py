@@ -46,16 +46,6 @@ def evaluator_power(df_train, df_val, entree, res, comp, eps_cv = 1000, eps_trai
     X_train, Y_train  = format_data_power(df_train, entree, res, comp, device = device)
     X_val, Y_val = format_data_power(df_val, entree, res, comp, device = device)
 
-    shape  = X_val.cpu().numpy().shape
-    with open(f"Power_models/scalers/scaler_Y_{model_name}.pkl", 'rb') as f :
-        scaler_Y = pkl.load(f)
-    with open(f"Power_models/scalers/scaler_X_{model_name}.pkl", 'rb') as f :
-        scaler_X = pkl.load(f) 
-
-    with open(f"Power_models/Xval_scaler_debug.pkl", 'rb') as f : scaler_debug = pkl.load(f)
-
-    
-
     ## Récupérer le scaler pour les labels 
     get_scale = f'scaler_Y_{model_name}.pkl' 
     if get_scale != None : 

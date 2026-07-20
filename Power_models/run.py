@@ -15,11 +15,11 @@ from time import perf_counter
 
 path_data = P.Path('data/100/raw/fichier_forces.csv')
 
-eps_obj     = 5
-n_trials    = 10
+eps_obj     = 250
+n_trials    = 50
 
-eps_cv      = 1
-eps_train   = 1
+eps_cv      = 500
+eps_train   = 500
 
 def run() : 
     glob_start = perf_counter()
@@ -39,12 +39,12 @@ def run() :
     df_train, df_val = get_splits(df_full)
     
     evaluate_baseline(df_val)
-    for entree in ['GMP'] : #'GVP', 'GMP'
+    for entree in ['GVP'] : #'GVP', 'GMP'
         for comp in [False] :
             if (entree == 'DP' or entree == 'GMP') and comp == True :
                 print(f"entree == {entree}, ne support pas le mode compression, entrainement ignoré.\n")
                 continue
-            for res in ['1'] :
+            for res in ['1','2'] :
                 if (res == '0' or res == '-1') and entree == 'GMP':
                     print(f"entree == {entree}, ne supporte pas le cas où il n'y a pas d'image BEM en entrée. Entraînement ignoré.\n")
                     continue
