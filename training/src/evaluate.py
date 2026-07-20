@@ -337,6 +337,28 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
         df_res_ae = denorm_and_reconstruct(df_test, preds_coeffs_ae, entree, residuelle, inter, is_cnn)
         AE_Score_A, AE_Score_B, AE_Score_C = score_ABC(df_res_ae)
 
+        # --- DEBUG evaluate : l'AE en mémoire a-t-il dérivé au moment du plancher ? ---
+        disk = torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device)
+        mem  = current_ae.state_dict()
+        print(f"[{ae_key}] (floor) training={current_ae.training}")
+        for k in disk:
+            d = (mem[k].float() - disk[k].float()).abs().max().item()
+            if d > 1e-6:
+                print(f"  DIFF {k:45s} max|Δ|={d:.4g}")
+
+        # plancher avec un AE rechargé frais (référence = verif_ae)
+        ae_fresh = (ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim,
+                        depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device)
+                    if ae_nature == 'M' else
+                    LinearAutoencoder(in_features=5184, latent_dim=ae_dim,
+                        n_layers=ae_config['ae_depth'], device=device).to(device))
+        ae_fresh.load_state_dict(disk); ae_fresh.eval()
+        with torch.no_grad():
+            dec_mem   = current_ae.decode(current_ae.encode(y_true_ae_in))
+            dec_fresh = ae_fresh.decode(ae_fresh.encode(y_true_ae_in))
+        print(f"  |decode(mem) - decode(fresh)| max = "
+              f"{(dec_mem - dec_fresh).abs().max().item():.4g}")
+
     pbar.set_postfix_str(f"Inférence : {time.perf_counter()-t0:.1f}s")
     pbar.update(1)
 
