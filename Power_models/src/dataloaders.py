@@ -277,10 +277,6 @@ def format_data_power(df, entree, res, comp, scaler_exist = True, device = 'cpu'
                     raise Exception(f"\nLe fichier contenant les hyperparamètres ou les paramètres du compresseur n'ont pas été trouvé. Lancez la procédure 'optimise_AE' avant.\n")
                 compressor.eval()
                 X_tensor = compressor.encode(X_tensor).detach()
-    
-    with open("Power_models/Xval_scaler_debug.pkl", 'rb') as f : 
-        scaler_debug = pkl.load(f)
-
     return X_tensor, Y_tensor
 
 def format_f(df, scaler_exist = False) :
