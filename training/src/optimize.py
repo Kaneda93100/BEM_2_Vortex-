@@ -1,4 +1,5 @@
 import gc
+import copy
 import optuna
 import json
 import torch
@@ -171,6 +172,16 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
             current_ae.eval()
             for p in current_ae.parameters():
                 p.requires_grad_(False)
+
+            # --- DEBUG : vérifie que le state_dict chargé colle bien au disque juste après le load ---
+            disk = torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device)
+            mem  = current_ae.state_dict()
+            print(f"[{ae_key}] (post-load) training={current_ae.training}")
+            for k in disk:
+                d = (mem[k].float() - disk[k].float()).abs().max().item()
+                if d > 1e-6:
+                    print(f"  DIFF {k:45s} max|Δ|={d:.4g}")
+
             latent_dim = ae_dim
         else:
             current_ae, latent_dim, ae_nature, ae_dim = None, 0, 'None', 0
@@ -230,6 +241,15 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         trial.set_user_attr("l1", l1); trial.set_user_attr("l2", l2); trial.set_user_attr("l3", l3)
         del criterion_builder, metric_fn
         if has_ae:
+            # --- DEBUG : le state_dict de l'AE a-t-il dérivé après la CV (BatchNorm réactivée ?) ---
+            disk = torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device)
+            mem  = current_ae.state_dict()
+            print(f"[{ae_key}] (post-CV) training={current_ae.training}")
+            for k in disk:
+                d = (mem[k].float() - disk[k].float()).abs().max().item()
+                if d > 1e-6:
+                    print(f"  DIFF {k:45s} max|Δ|={d:.4g}")
+
             current_ae.cpu()
             del current_ae
         gc.collect()
