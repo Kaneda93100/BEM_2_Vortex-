@@ -1,19 +1,31 @@
-# Ne garder que slides.tex et loadslides.tex
+# Ne garder que slides.tex, loadslides.tex et les fichier .sty pour pouvoir compiler les slides
 Slides/slide 01_07_26/*
 !Slides/slide 01_07_26/*tex
+
 Slides/slide 10_06_26/*
 !Slides/slide 10_06_26/*.tex
+
 Slides/slide 12_05_26/*
 !Slides/slide 12_05_26/*.tex
+
 Slides/slide 22_05_26/*
 !Slides/slide 22_05_26/*.tex
+
+Slides/slide 22_07_26/*
+!Slides/slide 22_07_26/styles
+!Slides/slide 22_07_26/*.tex
+
+schema_tikz/*
+!schema_tikz/main.tex
+!schema_tikz/main2+.tex
+
+
+
 
 Power_models/models/DP/*.pth
 Power_models/models/GVP/*.pth
 Power_models/models/GMP/*.pth
 
-schema_tikz/*
-!schema_tikz/main.tex
 
 # Environnement virtuel
 B2V

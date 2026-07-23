@@ -34,6 +34,7 @@
         %% ── LIGNE 1 : SVEN / AE ──────────────────────────
         \node[box, fill=colOutput!20, draw=colOutput] (sven_in) {$\mathbf{Y}^{\text{SVEN}}$ \\ ou \\ $\Delta Y = Y^{SVEN}-Y^{BEM}$};
         \node[box, fill=colAE!30, draw=colAE, right= 1cm of sven_in] (enc) {Encodeur\\AE};
+        \node[box, fill=colAE!30, draw=colAE, below=2.6cm of enc](enc_in) {Encodeur\\AE};
 
         \node[lat, right=1.3cm of enc] (z) {$\mathbf{z} \in \mathbb{R}^d$ (SVEN)};
         \node[box, fill=colAE!30, draw=colAE, right=1.3cm of z] (dec) {Décodeur\\AE};
@@ -49,11 +50,12 @@
         \node[box, fill=colInput!25, draw=colInput, below=2.2cm of sven_in] (x_in)
             {$[\gamma,\text{TSR}]$\\ ou \\ $\;[\gamma,\text{TSR},\mathbf{Y}^{\text{BEM}}]$};
             
-        \node[box, fill=colMLP!25, draw=colMLP, right= 1cm of x_in] (model)
-            {\texttt{Modèle}\\(MLP/CNN)};
 
-        \node[lat] (z_hat) at (z |- model) {$\mathbf{\hat{z}} \in \mathbb{R}^d$ (Pred)};
+
+        \node[lat, below=3cm of z] (z_hat) {$\mathbf{\hat{z}} \in \mathbb{R}^d$ (Pred)};
         
+        \node[box, fill=colMLP!25, draw=colMLP, right= 1cm of z_hat] (model)
+            {\texttt{Modèle}\\(MLP/CNN)};
         % Bloc 3 : Loss et backward
         \node[box, below=2.5cm of sven_out] (Y_clean) {$\mathbf{\hat{Y}_{clean}}$\\ Réajustement du résidu si besoins};
         \node[box, below = 2.5cm of Y_clean](Y_speed) {$\mathbf{\hat{Y}_{speed}}$};
@@ -110,9 +112,10 @@
 
         %% ── FLÈCHES ET RACCORDS ────────────────────────────────────
         \draw[arrow] (junction) -- (x_in);
-        \draw[arrow] (x_in) -- (model);
-        \draw[arrow] (model) -- (z_hat);
-        \draw[arrow] (z_hat.east) -| (dec.south);
+        \draw[arrow] (x_in) -- (enc_in);
+        \draw[arrow] (enc_in) -- (z_hat);
+        \draw[arrow] (z_hat) -- (model);
+        \draw[arrow] (model) -- (dec);
 
         %% ── BLOC JAUNE : ESPACE LATENT ─────────────────────────────────────
         \begin{scope}[on background layer]

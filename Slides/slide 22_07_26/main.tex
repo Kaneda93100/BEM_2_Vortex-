@@ -1,0 +1,463 @@
+\documentclass[
+11pt,notheorems,hyperref={pdfauthor=whatever}
+]{beamer}
+\input{loadslides.tex} % Loads packages and some defined commands
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc, decorations.pathreplacing}
+
+
+% ── Couleurs du schéma ──────────────────────────────────────────────
+\definecolor{colInput}{RGB}{70,130,180}
+\definecolor{colAE}{RGB}{255,165,0}
+\definecolor{colMLP}{RGB}{60,179,113}
+\definecolor{colCNN}{RGB}{178,34,34}
+\definecolor{colLoss}{RGB}{128,0,128}
+\definecolor{colOutput}{RGB}{47,79,79}
+\definecolor{colBEM}{RGB}{169,169,169}
+\definecolor{colLatent}{RGB}{255,215,0}
+\definecolor{colLatent}{RGB}{255,245,180}
+\definecolor{colLatentBorder}{RGB}{218,165,32}
+\definecolor{colLatentText}{RGB}{139,69,19}
+\title[
+% Text entered here will appear in the bottom middle
+]{Réunion du 22/07/2026}
+
+\subtitle{IFPEN/INRIA}
+
+\author[
+% Text entered here will appear in the bottom left corner
+]{
+    Arthur Timbeau, 
+    Adam Rozentalis,
+    Julien Salomon
+}
+
+
+\AtBeginSection[]{
+  \begin{frame}[plain]
+    \vfill
+    \centering
+    \usebeamerfont{title}\insertsection
+    \vfill
+  \end{frame}
+}
+
+\begin{document}
+
+% Generate title page
+
+\setbeamertemplate{footline}{}
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\setbeamertemplate{footline}{
+  \hfill\insertframenumber/\inserttotalframenumber\hspace{1em}\vspace{0.5em}
+}
+
+\begin{frame}
+    \tableofcontents
+\end{frame}
+
+\section{Contenu du document}
+
+\begin{frame}{Contenu du document}
+    \begin{itemize}
+        \item Rappels sur les travaux précédemment réalisé et présentation des stratégies 
+        \item Bref retour sur quelques approches
+        \item Introduction aux nouvelles méthodes mise en oeuvre et présentation de quelques résultats
+        \item Conclusion
+    \end{itemize}    
+\end{frame}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   Rappels sur les stratégies employés                                             %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Rappels sur la stratégie globale G}
+
+\subsection{Correction globale}
+
+\begin{frame}{Correction globale}
+    \begin{center}
+    \begin{itemize}
+    \item Les corrections \textbf{globales} (G) : les \textcolor{red}{rayons} et les \textcolor{blue}{azimuts}  sont fixés
+    \end{itemize}
+\end{center}
+\end{frame}
+
+\begin{frame}{Approche G}
+
+Approche globale : inférences sur les efforts sur toute les sections de la pale et tous les azimuts.
+
+    \vspace{0.3cm}
+
+    \begin{columns}[c]
+        \column{0.44\textwidth}
+        \textbf{Inputs :}
+        \begin{itemize}\small
+            \item Vitesse de rotation $\Omega \in \mathbb{R}$
+            \item Vitesse freestream $U_{\infty} \in \mathbb{R}$
+            \item Yaw $\gamma \in \left[-\frac{\pi}{4}, \frac{\pi}{4}\right]$
+        \end{itemize}
+
+        \column{0.10\textwidth}
+        \centering
+        \begin{tikzpicture}
+            \draw[-stealth, line width=4pt, color=blue!70]
+                (0, 0) -- (0.9, 0);
+        \end{tikzpicture}
+
+        \column{0.44\textwidth}
+        \textbf{Outputs :}
+        \begin{itemize}\small
+            \item Force normale $F_N \in \mathbb{R}^{n \times p}$
+            \item Force tangentielle $F_T \in \mathbb{R}^{n \times p}$
+        \end{itemize}
+    \end{columns}    
+\end{frame}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   Update                                                                          %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   GM & GV                                                                         %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Description des modèles}
+
+\subsubsection{Globale Vectoriel}
+
+\begin{frame}{GV}
+    L'approche \textcolor{blue}{G}lobale-\textcolor{blue}{V}ectorielle (\textcolor{blue}{GV}) est un MLP prenant en 
+    entrée un couple yaw/tsr et éventuellement des informations BEM pour prédire un  vecteur de $5184 \text{ }(= 36 \times 72 \times 2)$ dimensions
+    décrivant la répartition des variables cibles sur la grille azimuth/rayon. 
+
+    \vspace{0.3cm}
+
+    Il s'agit essentiellement de l'approche globale connue jusqu'à maintenant.
+\end{frame}
+
+\subsubsection{Globale Matricielle}
+
+\begin{frame}{GM}
+    L'approche \textcolor{blue}{G}lobale-\textcolor{blue}{M}atricielle (\textcolor{blue}{GM}) consiste en la prédiction de deux matrices de taille
+    $36 \times 72$ décrivant elles aussi la distribution des variables cibles sur la grille. La différence fondamentale entre les
+    deux est l'approche employée : le prédicateur n'est plus un MLP mais un CNN (\textit{Convolution Neural Network}).
+
+    \vspace{0.3cm}
+
+    L'analogie avec le computer vision est la suivante : Il s'agit de prédire/générer une image de $36 \times 72$ pixels. 
+    Chaque élément du dataset est alors vu comme 2 images (une pour $F_n \text{ et } F_t$ ou $V_{eff} \text{ et } \alpha$) de $36 \times 72$ pixels.
+    Le TSR et le yaw sont considérés comme des cannaux composant l'image (comme des "nuances de couleurs").  
+\end{frame}
+
+
+\subsection{Compression et Auto-encodeurs}
+
+\subsubsection{Compression à droite}
+\begin{frame}{Composition à droite}
+    On note $\mathcal{AE}$ un auto-encodeur de nature quelconque et $\mathcal{P}$ un prédicateur. La composition/compression à droite consiste à compresser — à projeter — l'entrée BEM vers un espace de dimension plus petite. Cette opération peut se lire de la manière suivante :
+    \[
+    \text{Compression à droite : }  \mathcal{P} \circ \mathcal{AE} (X_{BEM}) = X_{P} \in \mathbb{R}^{d}
+    \]
+
+    Et dans ce cas, le prédicateur $\mathcal{P}$ retourne un vecteur de l'espace latent, qui est ensuite décodé en effort SVEN.
+\end{frame}
+
+\subsubsection{Compression par le prédicateur}
+
+\begin{frame}{Encodage par le prédicateur}
+    Avec les mêmes notations, la composition/compression à gauche consiste à intégrer la procédure d'encodage dans le prédicateur $\mathcal{P}$, ce qui peut s'écrire symboliquement 
+    \[
+        \text{Compression à gauche : } \mathcal{P}(X_{BEM}) = X_{P} \in \mathbb{R}^d
+    \]
+
+    Le prédicateur $\mathcal{P}$ fait directement partie de l'encodage, et l'auto-encodeur sert à revenir dans l'espacede pleine dimension.
+\end{frame}
+
+\section{Fonctions de perte}
+
+\subsection{Description formelle}
+
+\begin{frame}{Introduction}
+    Une métrique a été utilisé afin d'améliorer les modèles optimisant
+    par rapport à la vitesse et à l'angle d'attaque. L'idée de cette métrique a été poussé 
+    afin de pouvoir prendre en compte le calcul une \textit{mesure de puissance} (noté $dQ$) et une \textit{mesure de poussée} (noté $dT$)\footnote{le terme \textit{mesure} est à comprendre au sens de la théorie de la mesure}.
+    
+    \vspace{0.2cm}
+
+    L'idée est la suivante : au lieu de ne minimiser que la précision du calcul des vitesses, on optimise une combinaison convexe
+    des vitesses et de la force et la puissance :
+    \[
+        \mathcal{L} = \lambda_1\mathcal{L}_1 + \lambda_2\mathcal{L}_2 + \lambda_3\mathcal{L}_3
+    \]
+    avec $\lambda_1 + \lambda_2 + \lambda_3 = 1$.
+\end{frame}
+
+\begin{frame}{$\mathcal{L}_1$}
+    Ce terme représente (de manière relative et locale) la \textbf{puissance} et la \textbf{poussée} : 
+    \[
+    \mathcal{L}_1 = \frac{1}{N}\sum_{i=1}^N \Big(\frac{\hat{C}_{p}^i - C_p^i}{C_p^i}\Big)^2 + \frac{1}{N}\sum_{i=1}^N \Big(\frac{\hat{C}_{t}^i - C_t^i}{C_t^i}\Big)^2
+    \]
+
+\end{frame}
+
+\begin{frame}{$\mathcal{L}_2$}
+    Ce terme ci représente les \textbf{efforts} : 
+    \begin{itemize}
+        \item Option A (Erreur relative globale) : \[
+            \mathcal{L}_2^A =  \frac{1}{N}\sum_{i=1}^N \Big(\frac{\hat{F}_{n}^i - F_n^i}{\max(| F_n^i |, 1)}\Big)^2 + \frac{1}{N}\sum_{i=1}^N  \Big(\frac{\hat{F}_{t}^i - F_t^i}{\max(|F_t^i|,1)}\Big)^2
+        \]
+        (\textbf{Nota Bene : } Le choix du dénominateur est arbitraire et a pour but d'éviter les divisions par 0)
+        \item Option B (Normalisation physique globale) : \[
+            \mathcal{L}_2^B =  \frac{1}{N}\sum_{i=1}^N \Big(\frac{\hat{F}_{n}^i - F_n^i}{ D^i }\Big)^2 + \frac{1}{N}\sum_{i=1}^N  \Big(\frac{\hat{F}_{t}^i - F_t^i}{D^i}\Big)^2
+        \]
+        où $D^i = \frac{\rho V_{app}^i |c(r_i)|}{2}$
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{$\mathcal{L}_3$}
+    Enfin, ce terme représente \textbf{vitesses} :
+    \begin{itemize}
+        \item Option A (Erreur relative locale dans l'espace normalisé) :\[
+            \mathcal{L}_3^A =  \frac{1}{N}\sum_{i=1}^N \Big(\frac{\hat{v}_{n}^i - v_n^i}{| v_n^i |}\Big)^2 + \frac{1}{N}\sum_{i=1}^N  \Big(\frac{\hat{v}_{t}^i - v_t^i}{|v_t^i|}\Big)^2
+        \]
+        \item Option B (MSE dans l'espace normalisée) :\[
+            \mathcal{L}_3^B = \frac{1}{N}\sum_{i=1}^N  \Big( \hat{v}_{n}^i - v_n^i \Big)^2 + \sum_{i=1}^N  \Big( \hat{v}_{t}^i - v_t^i \Big)^2
+        \]
+    \end{itemize}
+    Où $a$ représente une sortie (ou une étiquette) dans l'espace normalisé.
+\end{frame}
+
+\section{Résultats numériques}
+
+\begin{frame}{Légende des tableaux}
+    Suffixes généraux :
+    \begin{itemize}
+        \item '0' le modèle n'est pas informé par la BEM et prédit la sortie, '1' le modèle l'est
+        \item 'f' le modèle emploie une stratégie directe, 'v' une stratégie intermédiaire
+        \item 'DXY' : X indique la nature de l'auto-encodeur (vectoriel ou matriciel), Y indique la dimension de l'espace latent
+    \end{itemize}
+    Résiduelle :
+    \begin{itemize}
+        \item '2' : stratégie avec BEM prédisant directement une sortie SVEN
+        \item '0' : stratégie sans BEM prédisant une sortie SVEN.
+        \item '2+': stratégie avec BEM prédisant directement une sortie SVEN avec réduction de la dimension de l'entrée BEM (composition à gauche).
+        \item '1' : stratégie avec BEM prédisant un résidu SVEN-BEM
+        \item '-1' : stratégie sans BEM prédisant un résidu BEM-SVEN.
+     \end{itemize}
+    Scores (métriques) :
+     \begin{itemize}
+        \item Score A : somme des erreur relatives gloables sur les forces normales et tangentielles
+        \item Score B : somme des erreur sur les forces normales et tangentielles localement normalisée par la pression (voir slide 15, option B, formule avec $D_i$).
+        \item Score C : somme des erreur de prédiction sur la puissance et la poussée.
+    \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Question 1 : Faut-il intégrer ou non la BEM ?}
+    \vspace{0.3cm}
+
+    \small
+        \begin{tabular}{|c|c|c|c|c|c|}
+            \hline
+            \textbf{Modele} & \textbf{Score A} & \textbf{Score B} & \textbf{Score C} & \textbf{Cross-Validation} & \textbf{Variance} \\
+            \hline
+            BASELINE\_BEM 94,05 & 14,35 & 37,48 & None & None\\
+            \hline
+            GM\_0\_f\_D0\_A & 86,36 & 12,03 & 94,82 & 11,03 & 10,7 \\
+            GM\_1\_f\_D0\_A & 29,56 & 11,77 & 31,87 & 5,61 & 3,78 \\
+            GM\_2\_f\_D0\_A & 43,80 & 16,61 & 47,36 & 8,23 & 5,87 \\
+            \hline
+            GM\_0\_f\_DV128\_A & 46,75 & 8,69 & 7,82 & 27,27 & 4,17 \\
+            GM\_1\_f\_DV512\_A & 36,8 & 5,78 & 3,85 & 28,94 & 6,69 \\
+            GM\_2\_f\_DV32\_A & 42,75 & 5,96 & 3,99 & 22,46 & 3,45 \\
+            \hline
+            GM\_1\_v\_DV16\_A & 49,96 & 7,24 & 4,61 & 37,69 & 6,94 \\
+            GM\_2\_v\_DV1024\_A & 59,68 & 19,72 & 20,79 & 44,83 & 13,82 \\
+            \hline
+        \end{tabular}
+
+    \vspace{0.3cm}
+\end{frame}
+
+\begin{frame}{Question 2 : Faut-il privilégier les modèles GM ou GV ?}
+            \begin{tabular}{|c|c|c|c|c|c|}
+                \hline
+                \textbf{Modele} & \textbf{Score A} & \textbf{Score B} & \textbf{Score C} & \textbf{Cross-Validation} & \textbf{Variance} \\
+                \hline
+                BASELINE\_BEM &94,05 & 14,35 & 37,48 & None  & None   \\
+                \hline    
+                GM\_1\_f\_D0\_A & 31,87 & 5,61 & 3,78 & 29,56 & 11,77 \\
+                GV\_1\_f\_D0\_A & 32,77 & 4,55 & 2,98 & 31,03 & 11,05 \\
+                \hline
+            \end{tabular}
+\end{frame}
+
+\begin{frame}{Question 3 : Quelle variable faut-il prédire ?}
+
+            \begin{tabular}{|c|c|c|c|c|c|}
+                \hline
+                \textbf{Modele} & \textbf{Score A} & \textbf{Score B} & \textbf{Score C} & \textbf{Cross-Validation} & \textbf{Variance} \\
+                \hline
+                BASELINE\_BEM &94,05 & 14,35 & 37,48 & None  & None   \\
+                \hline
+                GM\_1\_f\_D0\_A & 31,87 & 5,61 & 3,78 & 29,56 & 11,77 \\
+                GM\_1\_v\_D0\_A & 66,34 & 13,1 & 14,17 & 58,65 & 10,02 \\
+                \hline
+                GM\_1\_f\_D0\_B & 42,44 & 3,76 & 2,57 & 3,16 & 0,36 \\
+                GM\_1\_v\_D0\_B & 46,78 & 4,31 & 3,45 & 3,45 & 0,48 \\
+                \hline
+                GM\_1\_f\_DV512\_A & 36,8 & 5,78 & 3,85 & 28,94 & 6,69 \\
+                GM\_1\_v\_DV16\_A & 49,96 & 7,24 & 4,61 & 37,69 & 6,94 \\
+                \hline
+                GM\_2\_f\_DV32\_A & 42,75 & 5,96 & 3,99 & 22,46 & 3,45 \\
+                GM\_2\_v\_DV1024\_A & 59,68 & 19,72 & 20,79 & 44,83 & 13,82 \\
+                \hline
+            \end{tabular}
+\end{frame}
+
+\begin{frame}{Question 4 : Quelle option choisir pour la fonction de perte ?}
+            \begin{tabular}{|c|c|c|c|c|c|}
+                \hline
+                \textbf{Modele} & \textbf{Score A} & \textbf{Score B} & \textbf{Score C} & \textbf{Cross-Validation} & \textbf{Variance} \\
+                \hline
+                BASELINE\_BEM &94,05 & 14,35 & 37,48 & None  & None   \\
+                \hline    
+                GM\_1\_f\_D0\_A & 31,87 & 5,61 & 3,78 & 29,56 & 11,77 \\
+                GM\_1\_f\_D0\_B & 42,44 & 3,76 & 2,57 & 3,16 & 0,36 \\
+                \hline
+                GM\_1\_v\_D0\_A & 66,34 & 13,1 & 14,17 & 58,65 & 10,02 \\
+                GM\_1\_v\_D0\_B & 46,78 & 4,31 & 3,45 & 3,45 & 0,48 \\                
+                \hline
+            \end{tabular}
+\end{frame}
+
+\begin{frame}{Question 5 : Quel est l’apport de l’usage d’AE ?}
+    \begin{tabular}{|c|c|c|c|c|c|}
+                \hline
+                \textbf{Modele} & \textbf{Score A} & \textbf{Score B} & \textbf{Score C} & \textbf{Cross-Validation} & \textbf{Variance} \\
+                \hline
+                BASELINE\_BEM &94,05 & 14,35 & 37,48 & None  & None   \\
+                \hline    
+                GM\_0\_f\_D0\_A & 94,82 & 11,03 & 10,7 & 86,36 & 12,03  \\ 
+                GM\_0\_f\_DV128\_A & 46,75 & 8,69 & 7,82 & 27,27 & 4,17 \\ 
+                \hline
+                GM\_1\_f\_D0\_A & 31,87 & 5,61 & 3,78 & 29,56 & 11,77   \\ 
+                GM\_1\_f\_DV512\_A & 36,8 & 5,78 & 3,85 & 28,94 & 6,69  \\ 
+                \hline
+                GM\_2\_f\_D0\_A & 47,36 & 8,23 & 5,87 & 43,8 & 16,61  \\
+                GM\_2\_f\_DV32\_A & 42,75 & 5,96 & 3,99 & 22,46 & 3,45 \\ 
+                \hline
+                GM\_1\_v\_D0\_A & 66,34 & 13,1 & 14,17 & 58,65 & 10,02  \\ 
+                GM\_1\_v\_DV16\_A & 49,96 & 7,24 & 4,61 & 37,69 & 6,94  \\ 
+                \hline
+    \end{tabular}
+\end{frame}
+
+\begin{frame}{Question 6 : Est-il intéressant de composer à droite ?}
+        \begin{tabular}{|c|c|c|c|c|c|}
+                \hline
+                \textbf{Modele} & \textbf{Score A} & \textbf{Score B} & \textbf{Score C} & \textbf{Cross-Validation} & \textbf{Variance} \\
+                \hline
+                BASELINE\_BEM &94,05 & 14,35 & 37,48 & None  & None   \\
+                \hline    
+                GM\_2\_f\_DV32\_A & 42,75 & 5,96 & 3,99 & 22,46 & 3,45 \\
+                GV\_2+\_f\_DV16\_A & 43,86 & 4,74 & 3,12 & 21,69 & 4,88 \\
+                \hline
+                GM\_2\_v\_DV1024\_A & 59,68 & 19,72 & 20,79 & 44,83 & 13,82 \\
+                GV\_2+\_v\_DV16\_A & 29,51 & 5,98 & 5,77 & 24,82 & 7,33 \\
+                \hline
+    \end{tabular}
+\end{frame}
+
+\begin{frame}{Meilleures performances : $F_n$}
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|c|c|}
+    \hline
+    Modele & err\_abs\_Nm & err\_rel\_\% & err\_normD\_\% & L1 & L2 & L3 \\
+    \hline
+    BASELINE\_BEM & 22,3797 & 17,44 & 10,06 & - & - & - \\
+    GV\_1\_f\_D0\_A & 4,6461 & 2,15 & 2,06 & 0,67 & 0,33 & 0 \\
+    GM\_1\_v\_D0\_B & 5,0563 & 2,2 & 1,96 & 0,31 & 0,69 & 0 \\
+    \hline
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Meilleures performances : $F_t$}
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|c|c|}
+        \hline
+        Modele & err\_abs\_Nm & err\_rel\_\% & err\_normD\_\% & L1 & L2 & L3 \\
+        \hline
+        BASELINE\_BEM & 22,3797 & 17,44 & 10,06 & - & - & - \\    
+        GV\_2+\_v\_DV16\_A & 4,4426 & 26,09 & 2,77 & 0,81 & 0,05 & 0,13 \\
+        GM\_1\_f\_D0\_A & 4,2249 & 28,49 & 2,61 & 0,45 & 0,55 & 0 \\
+        \hline
+    \end{tabular}
+\end{frame}
+
+\begin{frame}{Meilleures performances : $C_p$}
+
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|}
+        \hline
+        Modele & err\_abs & err\_\% & L1 & L2 & L3 \\
+        \hline
+        BASELINE\_BEM & 0,100939 & 27,84 & - & - & - \\
+        \hline
+        GM\_1\_f\_D0\_B & 0,008074 & 1,93 & 0,01 & 0,99 & 0 \\
+        GV\_2+\_f\_DV16\_A & 0,009924 & 2,17 & 0,93 & 0,07 & 0 \\
+        GV\_1\_f\_D0\_A & 0,00969 & 2,2 & 0,67 & 0,33 & 0 \\
+        \hline
+
+    \end{tabular}
+
+\end{frame}
+
+\begin{frame}{Meilleures performances : $C_t$}
+    
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|}
+    \hline
+    Modele & err\_abs & err\_\% & L1 & L2 & L3 \\
+    \hline
+    BASELINE\_BEM & 0,105264 & 9,64 & - & - & - \\
+    \hline
+    GM\_1\_f\_D0\_B & 0,006588 & 0,64 & 0,01 & 0,99 & 0 \\
+    GV\_1\_f\_D0\_A & 0,008149 & 0,78 & 0,67 & 0,33 & 0 \\
+    GM\_1\_v\_D0\_B & 0,008655 & 0,84 & 0 & 0,28 & 0,71 \\        
+    \hline
+    \end{tabular}
+
+\end{frame}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%                                   CLL                                                                             %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\section{Conclusion}
+
+\begin{frame}{Pistes de continuation}
+    \begin{itemize}
+        \item La géométrie de la pale pourrait être ajoutée en paramètre d'entrée des modèles. Cela permettrai d'effectuer quelques
+            tests de comparaisons en les performances des modèle globaux et locaux (classe $L$) et de peut-être redonner du sens à ces derniers. 
+            Essayer d'établir une "proof of concept" pour commencer à réfléchir à la question.
+        \item Améliorer la conception des AE : orthogonaliser la base de l'espace latent, établir une continuité entre l'espace latent associés aux champs de forces
+               SVEN et $(\gamma, TSR)$, etc.
+        \item Finir de debugger les modèles de puissances.
+        \end{itemize}
+\end{frame}
+
+\begin{frame}{Merci pour votre attention !}
+    
+\end{frame}
+\end{document}
+
+
