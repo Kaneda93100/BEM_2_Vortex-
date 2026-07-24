@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from core.models import ConvolutionalAutoencoder, LinearAutoencoder, TorchScaler
 from training.src.data_loader import format_data, get_D_tensor
 from training.src.trainer import fit_model, cross_validate
-from core.config import EPOCHS_AE, TRIALS_AE, LR_BOUNDS, CV_SPLITS, AE_LAYERS_BOUNDS, get_ae_residual_key
+from core.config import EPOCHS_AE, TRIALS_AE, LR_BOUNDS_AE_PRETRAIN, CV_SPLITS, AE_LAYERS_BOUNDS, get_ae_residual_key
 
 class AEPhysicalLoss(nn.Module):
     """
@@ -111,7 +111,7 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
     cv_inter = 'f' if physical_criterion is not None else None
 
     def objective_ae(trial):
-        lr = trial.suggest_float('ae_lr', LR_BOUNDS[0], LR_BOUNDS[1], log=True)
+        lr = trial.suggest_float('ae_lr', LR_BOUNDS_AE_PRETRAIN[0], LR_BOUNDS_AE_PRETRAIN[1], log=True)
         n_layers = trial.suggest_int('ae_depth', AE_LAYERS_BOUNDS[0], AE_LAYERS_BOUNDS[1])
 
         if is_cnn_for_ae:
