@@ -12,7 +12,8 @@ import multiprocessing as mp
 
 ## Définir des variables par défaut pour plus de lisibilité
 rho = 1.191
-rotor_dir_vortex = '/home/arthur/Documents/GitHub/bemol/bemol/rotors/mexico_vortex'
+
+rotor_dir_vortex = str(p.Path(__file__).resolve().parents[2] / 'bemol' / 'rotors' / 'mexico_vortex')
 rotor_vortex = bem.rotor.Rotor(rotor_dir_vortex)
 corrections = [
     bem.secondary.hubTipLoss.Prandtl,

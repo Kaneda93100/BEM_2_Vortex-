@@ -13,3 +13,7 @@ numba>=0.54.0
 
 # --- Visualisation & Métriques ---
 matplotlib>=3.4.0
+
+# --- Application Streamlit ---
+streamlit>=1.30.0
+pyyaml>=6.0
