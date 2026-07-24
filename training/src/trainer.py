@@ -128,7 +128,12 @@ def cross_validate(X_full, Y_full, model_class, model_kwargs, criterion_builder,
             cv_custom_scores.append(score)
             
     mean_val_loss = np.mean(cv_losses)
-    mean_custom_score = np.mean(cv_custom_scores) if cv_custom_scores else None
-    std_custom_score = np.std(cv_custom_scores) if cv_custom_scores else None
-    
+    if cv_custom_scores and isinstance(cv_custom_scores[0], dict):
+        keys = cv_custom_scores[0].keys()
+        mean_custom_score = {k: np.mean([s[k] for s in cv_custom_scores]) for k in keys}
+        std_custom_score = {k: np.std([s[k] for s in cv_custom_scores]) for k in keys}
+    else:
+        mean_custom_score = np.mean(cv_custom_scores) if cv_custom_scores else None
+        std_custom_score = np.std(cv_custom_scores) if cv_custom_scores else None
+
     return mean_val_loss, mean_custom_score, std_custom_score
