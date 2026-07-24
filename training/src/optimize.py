@@ -9,7 +9,7 @@ from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, Linear
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
-from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR, get_ae_residual_key
+from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS_NOAE, LR_BOUNDS_AE, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR, get_ae_residual_key
 
 def get_u_inf_tensor(df, device='cpu'):
     u_inf_list = []
@@ -157,9 +157,10 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
             return (rmse_e + rmse_f).item()
 
     def objective_model(trial):
-        lr = trial.suggest_float('lr', LR_BOUNDS[0], LR_BOUNDS[1], log=True)
-        dropout_rate = trial.suggest_float('dropout_rate', DROPOUT_BOUNDS[0], DROPOUT_BOUNDS[1])
-        
+        lr_bounds = LR_BOUNDS_AE if has_ae else LR_BOUNDS_NOAE
+        lr = trial.suggest_float('lr', lr_bounds[0], lr_bounds[1], log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', DROPOUT_BOUNDS[0], DROPOUT_BOUNDS[1], log=True)
+
         if has_ae:
             ae_nature = trial.suggest_categorical('ae_nature', AE_NATURES)
             ae_dim = trial.suggest_categorical('ae_dim', AE_DIMS)
@@ -193,11 +194,8 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
 
         # --- CONTRAINTE CONVEXE POUR LES LAMBDAS ---
         if inter == 'v':
-            u1 = trial.suggest_float('u1', 0, 1)
-            u2 = trial.suggest_float('u2', 0, 1)
-            u3 = trial.suggest_float('u3', 0, 1)
-            s = u1 + u2 + u3 + 1e-8
-            l1, l2, l3 = u1/s, u2/s, u3/s
+            v = sorted([trial.suggest_float('v1', 0, 1), trial.suggest_float('v2', 0, 1)])
+            l1, l2, l3 = v[0], v[1] - v[0], 1 - v[1]  # uniforme sur le 2-simplexe
         else: # inter == 'f' -> l3 = 0
             u1 = trial.suggest_float('u1', 0, 1)
             l1, l2, l3 = u1, 1.0 - u1, 0.0
