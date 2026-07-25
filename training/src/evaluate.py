@@ -126,27 +126,27 @@ def score_ABC(df_res):
 
     return m_c + m_d, m_e + m_f, m_i + m_j
 
-def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, baseline_scores):
+def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, baseline_scores, pct=100):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     has_plus = '+' in str(residuelle)
     ae_label = "DXY" if has_ae else "D0"
-    model_base_name = f"{entree}_{residuelle}_{inter}_{ae_label}_{option}"
-    
+    model_base_name = f"{entree}_{residuelle}_{inter}_{ae_label}_{option}_P{pct}"
+
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
     if not os.path.exists(target_json):
         print(f"   [ERREUR] Aucun hyperparamètre trouvé pour {model_base_name}.")
         return
-        
+
     all_hps = json.load(open(target_json, "r"))
     if model_base_name not in all_hps: return
-        
+
     best_params = all_hps[model_base_name]
     ae_nature = best_params.get("ae_nature", "None")
     ae_dim = best_params.get("ae_dim", 0)
     l1, l2, l3 = best_params.get("l1", 0.0), best_params.get("l2", 1.0), best_params.get("l3", 0.0)
-    
+
     final_ae_str = f"D{ae_nature}{ae_dim}" if has_ae else "D0"
-    final_model_name = f"{entree}_{residuelle}_{inter}_{final_ae_str}_{option}"
+    final_model_name = f"{entree}_{residuelle}_{inter}_{final_ae_str}_{option}_P{pct}"
     
     print(f"\n{'='*50}")
     print(f" ÉVALUATION : {final_model_name}")

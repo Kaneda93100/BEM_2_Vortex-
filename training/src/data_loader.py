@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 import torch
 import pickle
 from sklearn.preprocessing import StandardScaler
-from core.config import RHO, U_INFTY, PITCH_RAD, R_ROTOR, OMEGA
+from core.config import RHO, U_INFTY, PITCH_RAD, R_ROTOR, OMEGA, RANDOM_SEED
 
 # Importations physiques globales
 from core.physics import compute_V_app, get_geometry
@@ -38,6 +38,22 @@ def get_splits(df, seed=42, test_size=0.2, save_dir=None):
         print(f" [OK] Fichiers créés : train.csv et test.csv dans {save_dir}")
         
     return train_df, test_df
+
+def subsample_train(df_train, pct, seed=RANDOM_SEED):
+    """
+    Sous-échantillonne le train à pct% des couples (yaw, TSR) uniques.
+    (En LHS, un yaw correspond à au plus un unique TSR, donc échantillonner
+    sur les yaw uniques revient à échantillonner sur les couples (yaw, TSR).)
+    """
+    if pct >= 100:
+        return df_train.copy()
+
+    yaws_uniques = df_train['yaw'].unique()
+    n_keep = max(1, int(round(len(yaws_uniques) * pct / 100)))
+    rng = np.random.RandomState(seed)
+    kept_yaw = rng.choice(yaws_uniques, size=n_keep, replace=False)
+
+    return df_train[df_train['yaw'].isin(kept_yaw)].copy()
 
 class IsotropicScaler:
     """ Scaler global qui divise par l'écart-type de la Norme. """
