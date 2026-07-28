@@ -5,8 +5,8 @@ from app.core_app.bootstrap import REPO_ROOT
 
 BASELINE_BEM = "baseline_bem"
 
-# {GM|GV}_{résiduelle}_{f|v}_D{ae_nature}{ae_dim}_{A|B}
-MODEL_NAME_RE = re.compile(r"^(GM|GV)_(0|1|2\+?)_([fv])_D([A-Z]*)(\d+)_([AB])$")
+# {GM|GV}_{résiduelle}_{f|v}_D{ae_nature}{ae_dim}_{A|B}_P{pourcentage_donnees_train}
+MODEL_NAME_RE = re.compile(r"^(GM|GV)_(0|1|2\+?)_([fv])_D([A-Z]*)(\d+)_([AB])_P(\d{1,3})$")
 
 OPTION_DESCRIPTIONS = {
     "A": "Score A — erreur relative locale : à chaque point (r, theta), "
@@ -23,7 +23,7 @@ def parse_model_name(model_name: str) -> dict:
     match = MODEL_NAME_RE.match(model_name)
     if not match:
         raise ValueError(f"Nom de modèle non reconnu : '{model_name}'")
-    entree, residuelle, inter, ae_nature, ae_dim, option = match.groups()
+    entree, residuelle, inter, ae_nature, ae_dim, option, pct = match.groups()
     return {
         "entree": entree,
         "residuelle": residuelle,
@@ -31,6 +31,7 @@ def parse_model_name(model_name: str) -> dict:
         "ae_nature": ae_nature or None,
         "ae_dim": int(ae_dim),
         "option": option,
+        "pct": int(pct),
     }
 
 
@@ -63,4 +64,5 @@ def describe_model(model_name: str) -> str:
     else:
         parts.append("sans auto-encodeur")
     parts.append(f"loss {info['option']}")
+    parts.append(f"{info['pct']}% des données (yaw,TSR) d'entraînement")
     return ", ".join(parts)

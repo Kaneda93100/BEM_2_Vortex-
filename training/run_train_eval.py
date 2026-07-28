@@ -1,11 +1,11 @@
 import time
 import os
 import itertools
-from training.src.data_loader import load_clean_data, get_splits
+from training.src.data_loader import load_clean_data, get_splits, subsample_train
 from training.src.optimize_ae import optimize_and_train_ae
 from training.src.optimize import optimize
 from training.src.evaluate import evaluator, evaluate_baselines
-from core.config import INTERMS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRIALS_GM
+from core.config import INTERMS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRIALS_GM, DATA_PCTS
 
 sess_AR = False
 sess_AT = False
