@@ -9,6 +9,10 @@ from core.config import (INTERMS, AE_NATURES, AE_DIMS, TRIALS_AE, TRIALS_GV, TRI
                           BEM_SUFFIXES, DEFAULT_BEM_SUFFIX, needs_bem_suffix, get_ae_residual_key,
                           format_model_name)
 
+sess_AR = False
+sess_AT = False
+
+
 def main():
     os.makedirs("training/performance", exist_ok=True)
     df_full = load_clean_data()
@@ -35,54 +39,87 @@ def main():
             tag = f"{r}_{i}_D{nature}{dim}" + (f"_{bem_suffix}" if bem_suffix else "")
             print(f"   [CHRONO] AE {tag} : {time.perf_counter()-t0:.1f}s")
 
-      # 2. PLAN D'EXPÉRIENCES (14 MODÈLES CIBLÉS)
+    # 2. PLAN D'EXPÉRIENCES (14 MODÈLES CIBLÉS)
+
+    if (sess_AT == sess_AR) : 
+        raise ValueError("Une campagne d'entraînement par session. Régler sess_AT et sess_AR sur deux valeurs différentes.")
+
 
     print("\n" + "="*80)
-    print(" PHASE 2 : PLAN D'EXPÉRIENCES (14 MODÈLES STRATÉGIQUES)")
+    print(" PHASE 2 : PLAN D'EXPÉRIENCES")
     print("="*80)
-    
-    test_models = [
-        # Q1: Comparaison de l'intégration BEM (0 vs 1 vs 2)
-        ('GM', '0', 'f', False, 'A'),
-        ('GM', '1', 'f', False, 'A'), # Point de Pivot
-        ('GM', '2', 'f', False, 'A'),
         
-        # Q2: Impact du format spatial (GM vs GV)
-        ('GV', '1', 'f', False, 'A'),
-        
-        # Q3: Grandeur cible (Forces vs Vitesses)
-        ('GM', '1', 'v', False, 'A'),
-        
-        # Q4: Fonction de perte (A vs B)
-        ('GM', '1', 'f', False, 'B'),
-        ('GM', '1', 'v', False, 'B'),
-        
-        # Q5: Apport de l'Auto-Encodeur (D0 vs DXY)
-        ('GM', '0', 'f', True,  'A'),
-        ('GM', '1', 'f', True,  'A'),
-        ('GM', '2', 'f', True,  'A'), # Servira de base pour comparer le 2+
-        ('GM', '1', 'v', True,  'A'),
-        ('GM', '2', 'v', True,  'A'), # Servira de base pour comparer le 2+
-        
-        # Q6: Apport du mode '+' (Projection dans l'espace latent)
-        ('GV', '2+', 'f', True,  'A'),
-        ('GV', '2+', 'v', True,  'A'),
-    ]
-    
-    for pct in DATA_PCTS:
-        df_train_pct = subsample_train(df_train, pct)
+    if sess_AT == True :
 
-        print("\n" + "="*80)
-        print(f" PROPORTION DE DONNÉES D'ENTRAÎNEMENT : {pct}% "
-              f"({df_train_pct['yaw'].nunique()}/{df_train['yaw'].nunique()} yaw)")
-        print("="*80)
+        """
+        Sur la session AT, on lance la session 1 : quel est le meilleur modèle sans BEM ?
+        """
+        
+        test_models = [
+            ## GM avec et sans encodeur avec loss B (2 modèles)
+            ('GM','0','f', False, 'B'),
+            ('GM','0','f', True, 'B'),
 
-        for e, r, i, has_ae, opt in test_models:
+            ## Modèles GV (8 modèles) 
+            
+                # Auto-encodeur ou non, loss A et f
+                ('GV', '0', 'f', False, 'A'),
+                ('GV', '0', 'f', True, 'A'),
+
+                #Auto-encodeur ou non, loss B et f
+                ('GV', '0', 'f', False, 'B'),
+                ('GV', '0', 'f', True, 'B'),
+
+                # Auto-encodeur ou non, loss A et v
+                ('GV', '0', 'v', False, 'A'),
+                ('GV', '0', 'v', True, 'A'),
+
+                #Auto-encodeur ou non, loss B et v
+                ('GV', '0', 'v', False, 'B'),
+                ('GV', '0', 'v', True, 'B'),
+
+            ## GM_0_V_{avec ou sans AE}_B (2 modèles) 
+
+            ('GM', '0', 'v', False, 'B'),
+            ('GM', '0', 'v', True, 'B')
+
+        ]
+
+    if sess_AR == True : 
+        """
+          Sur la session AR, on lance la session 2 : quel est le meilleur modèle à BEM ?
+        """
+        
+        test_models = [
+            ## GV sans encodeur avec loss B (2 modèles)
+            ('GV','1','f', False, 'B'),
+            ('GV','1','v', False, 'B'),
+
+            ## GV avec encodeur et loss A (2 modèles)
+            ('GV', '1', 'f', True, 'A'),
+            ('GV', '1', 'v', True, 'A'),
+
+            ## {GV,GM}_1_{f,v}_AE_B (4 modèles)
+            # GV
+                ('GV','1','f', True, 'B'),
+                ('GV','1','v', True, 'B'),
+            # GM
+                ('GM', '1', 'f', True, 'B'),
+                ('GM', '1', 'v', True, 'B'),
+
+            ## GM_0_V_{avec ou sans AE}_B (2 modèles) 
+
+            ('GM', '0', 'v', False, 'B'),
+            ('GM', '0', 'v', True, 'B')
+        ]
+
+    for e, r, i, has_ae, opt in test_models:
+            
 
             # On exclut les modes "1+" (qui n'ont pas de sens physique en fait)
             if '1+' in r:
                 continue
-
+                
             ae_label = "DXY" if has_ae else "D0"
             suffixes_for_model = BEM_SUFFIXES if needs_bem_suffix(r) else [None]
 

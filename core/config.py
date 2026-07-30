@@ -23,8 +23,8 @@ Dist_R = [0.2119407,  0.21968875, 0.23512587, 0.25813459, 0.28853979, 0.32611007
 # ==========================================
 # 2. PARAMÈTRES D'ENTRAÎNEMENT (TRAINER)
 # ==========================================
-EPOCHS_OPTUNA = 1000         
-EPOCHS_FINAL = 1000         
+EPOCHS_OPTUNA = 500        
+EPOCHS_FINAL = 500         
 EPOCHS_AE = 500            
 
 RANDOM_SEED = 42

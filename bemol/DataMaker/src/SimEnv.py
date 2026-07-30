@@ -131,6 +131,7 @@ class SimEnv :
     def set_wind(self, tsr) :
         self.U = self.omega*2.25/tsr
         return
+    
     def data_maker(self, yaws:list, tsrs:list, nbr_az, export = True) :
         deg_azs = np.linspace(0,360, nbr_az, endpoint = False)
         rad_azs = np.radians(deg_azs)
