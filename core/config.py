@@ -12,6 +12,7 @@ U_INFTY = 12.52             # Vitesse du vent (TSR 8) [m/s]
 PITCH_RAD = -0.040143       # Angle de pitch en radians (-2.3 degrés)
 R_ROTOR = 2.25              # Rayon du rotor [m]
 OMEGA = 44.5163679          # Vitesse de rotation [rad/s]
+
 Dist_R = [0.2119407,  0.21968875, 0.23512587, 0.25813459, 0.28853979, 0.32611007, # Distribution des rayons de la pale
  0.3705595,  0.42154979, 0.47869288, 0.54155386, 0.60965434, 0.68247602,
  0.75946469 ,0.84003441, 0.92357201, 1.00944172, 1.09699   , 1.18555057,
@@ -74,6 +75,30 @@ def get_ae_residual_key(residuelle):
     """ Clé canonique de résiduelle pour la banque d'auto-encodeurs (déduplique '0' et '2'). """
     res_base = str(residuelle).replace('+', '')
     return AE_RESIDUAL_ALIASES.get(res_base, res_base)
+
+# =========================================================================
+# VARIANTES DE CALCUL BEM (DUM / IFP / P&P)
+# =========================================================================
+BEM_SUFFIXES = ['DUM', 'IFP', 'P&P']
+DEFAULT_BEM_SUFFIX = 'IFP'  # référence historique (= ancien Fn_BEM générique)
+
+
+def needs_bem_suffix(residuelle) -> bool:
+    """ True si ce type de résiduelle utilise la BEM en entrée (donc variante-dépendant). """
+    return str(residuelle).replace('+', '') in ('1', '2')
+
+def format_scaler_name(entree, residuelle, inter, bem_suffix=None):
+    suffix = f"_{bem_suffix}" if needs_bem_suffix(residuelle) else ""
+    return f"{entree}_{residuelle}_{inter}{suffix}"
+
+def format_model_name(entree, residuelle, inter, ae_label, option, pct, bem_suffix=None):
+    suffix = f"_{bem_suffix}" if needs_bem_suffix(residuelle) else ""
+    return f"{entree}_{residuelle}_{inter}{suffix}_{ae_label}_{option}_P{pct}"
+
+def format_ae_key(residuelle, inter, ae_nature, ae_dim, bem_suffix=None):
+    res_base = get_ae_residual_key(residuelle)
+    suffix = f"_{bem_suffix}" if res_base == '1' else ""
+    return f"{res_base}_{inter}{suffix}_D{ae_nature}{ae_dim}"
 
 # =========================================================================
 # HYPERPARAMÈTRES D'ENTRAÎNEMENT & OPTUNA

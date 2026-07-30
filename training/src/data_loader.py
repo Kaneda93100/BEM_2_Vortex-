@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 import torch
 import pickle
 from sklearn.preprocessing import StandardScaler
-from core.config import RHO, U_INFTY, PITCH_RAD, R_ROTOR, OMEGA, RANDOM_SEED
+from core.config import RHO, U_INFTY, PITCH_RAD, R_ROTOR, OMEGA, RANDOM_SEED, needs_bem_suffix, format_scaler_name
 
 # Importations physiques globales
 from core.physics import compute_V_app, get_geometry
@@ -67,16 +67,21 @@ class IsotropicScaler:
     def inverse_transform(self, X):
         return X * self.scale_
 
-def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
+def format_data(df, entree, residuelle, inter, is_train=True, device='cpu', bem_suffix=None):
     """
     Formatte les entrées X et les cibles Y.
     - residuelle '0' : Y = SVEN, X = scalaires
     - residuelle '1' : Y = SVEN - BEM, X = scalaires + matrice BEM
     - residuelle '2' (ou '2+') : Y = SVEN, X = scalaires + matrice BEM
+
+    `bem_suffix` (DUM/IFP/P&P) sélectionne la variante BEM à utiliser ; requis dès que la BEM est
+    utilisée en entrée (residuelle '1'/'2'/'2+').
     """
     res_str = str(residuelle).replace('+', '') # On extrait le chiffre pur (0, 1 ou 2)
     has_plus = '+' in str(residuelle)
-    
+    if needs_bem_suffix(residuelle) and bem_suffix is None:
+        raise ValueError(f"bem_suffix requis pour residuelle={residuelle!r}")
+
     X_list = []
     Y_list = []
     geom = get_geometry()
@@ -100,23 +105,23 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
                     v_app_b = compute_V_app(group)
                     chord_b = np.array([geom.get_chord(r) for r in group['r'].values])
                     D_b = 0.5 * RHO * v_app_b**2 * np.abs(chord_b)
-                    x_val.extend(group['Fn_BEM'].values / D_b)
-                    x_val.extend(group['Ft_BEM'].values / D_b)
+                    x_val.extend(group[f'Fn_BEM_{bem_suffix}'].values / D_b)
+                    x_val.extend(group[f'Ft_BEM_{bem_suffix}'].values / D_b)
                 else: # 'v'
                     v_app_b = compute_V_app(group)
-                    alpha_bem_rad = np.radians(group['alpha_BEM'])
-                    an_bem = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
-                    at_bem = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
+                    alpha_bem_rad = np.radians(group[f'alpha_BEM_{bem_suffix}'])
+                    an_bem = np.sin(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app_b
+                    at_bem = np.cos(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app_b
                     x_val.extend(an_bem)
                     x_val.extend(at_bem)
             X_list.append(x_val)
-            
+
             # --- Création de la Cible Y ---
             if inter == 'f':
                 c1, c2 = ('Fn_SVEN', 'Ft_SVEN') if res_str in ['0', '2'] else ('Fn_delta', 'Ft_delta')
                 if res_str == '1' and 'Fn_delta' not in group.columns:
-                    group['Fn_delta'] = group['Fn_SVEN'] - group['Fn_BEM']
-                    group['Ft_delta'] = group['Ft_SVEN'] - group['Ft_BEM']
+                    group['Fn_delta'] = group['Fn_SVEN'] - group[f'Fn_BEM_{bem_suffix}']
+                    group['Ft_delta'] = group['Ft_SVEN'] - group[f'Ft_BEM_{bem_suffix}']
             else: # 'v'
                 c1, c2 = ('an_SVEN', 'at_SVEN') if res_str in ['0', '2'] else ('an_delta', 'at_delta')
                 if 'an_SVEN' not in group.columns:
@@ -125,9 +130,9 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
                     group['an_SVEN'] = np.sin(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
                     group['at_SVEN'] = np.cos(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
                     if res_str == '1':
-                        alpha_bem_rad = np.radians(group['alpha_BEM'])
-                        group['an_BEM'] = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app
-                        group['at_BEM'] = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app
+                        alpha_bem_rad = np.radians(group[f'alpha_BEM_{bem_suffix}'])
+                        group['an_BEM'] = np.sin(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app
+                        group['at_BEM'] = np.cos(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app
                         group['an_delta'] = group['an_SVEN'] - group['an_BEM']
                         group['at_delta'] = group['at_SVEN'] - group['at_BEM']
             
@@ -167,32 +172,32 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
                 if inter == 'f':
                     chord_grid_x = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
                     D_grid_x = 0.5 * RHO * v_app_grid**2 * np.abs(chord_grid_x)
-                    x_channels.append(group['Fn_BEM'].values.reshape(num_r, num_theta) / D_grid_x)
-                    x_channels.append(group['Ft_BEM'].values.reshape(num_r, num_theta) / D_grid_x)
+                    x_channels.append(group[f'Fn_BEM_{bem_suffix}'].values.reshape(num_r, num_theta) / D_grid_x)
+                    x_channels.append(group[f'Ft_BEM_{bem_suffix}'].values.reshape(num_r, num_theta) / D_grid_x)
                 else:
                     v_app_b = compute_V_app(group)
-                    alpha_bem_rad = np.radians(group['alpha_BEM'])
-                    an_bem = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
-                    at_bem = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app_b
+                    alpha_bem_rad = np.radians(group[f'alpha_BEM_{bem_suffix}'])
+                    an_bem = np.sin(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app_b
+                    at_bem = np.cos(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app_b
                     x_channels.append(an_bem.values.reshape(num_r, num_theta))
                     x_channels.append(at_bem.values.reshape(num_r, num_theta))
-                    
+
             X_list.append(np.stack(x_channels, axis=0))
 
             # --- Création de la Cible Y ---
             if inter == 'f':
                 c1, c2 = ('Fn_SVEN', 'Ft_SVEN') if res_str in ['0', '2'] else ('Fn_delta', 'Ft_delta')
                 if res_str == '1' and 'Fn_delta' not in group.columns:
-                    group['Fn_delta'] = group['Fn_SVEN'] - group['Fn_BEM']
-                    group['Ft_delta'] = group['Ft_SVEN'] - group['Ft_BEM']
-                
+                    group['Fn_delta'] = group['Fn_SVEN'] - group[f'Fn_BEM_{bem_suffix}']
+                    group['Ft_delta'] = group['Ft_SVEN'] - group[f'Ft_BEM_{bem_suffix}']
+
                 v_app_sq = v_app_grid**2
                 chord_grid = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
                 D_grid = 0.5 * RHO * v_app_sq * np.abs(chord_grid)
-                
+
                 y1 = group[c1].values.reshape(num_r, num_theta) / D_grid
                 y2 = group[c2].values.reshape(num_r, num_theta) / D_grid
-                
+
             else: # 'v'
                 c1, c2 = ('an_SVEN', 'at_SVEN') if res_str in ['0', '2'] else ('an_delta', 'at_delta')
                 if 'an_SVEN' not in group.columns:
@@ -201,12 +206,12 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
                     group['an_SVEN'] = np.sin(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
                     group['at_SVEN'] = np.cos(alpha_sven_rad) * group['V_eff_SVEN'] / v_app
                     if res_str == '1':
-                        alpha_bem_rad = np.radians(group['alpha_BEM'])
-                        group['an_BEM'] = np.sin(alpha_bem_rad) * group['V_eff_BEM'] / v_app
-                        group['at_BEM'] = np.cos(alpha_bem_rad) * group['V_eff_BEM'] / v_app
+                        alpha_bem_rad = np.radians(group[f'alpha_BEM_{bem_suffix}'])
+                        group['an_BEM'] = np.sin(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app
+                        group['at_BEM'] = np.cos(alpha_bem_rad) * group[f'V_eff_BEM_{bem_suffix}'] / v_app
                         group['an_delta'] = group['an_SVEN'] - group['an_BEM']
                         group['at_delta'] = group['at_SVEN'] - group['at_BEM']
-                        
+
                 y1 = group[c1].values.reshape(num_r, num_theta)
                 y2 = group[c2].values.reshape(num_r, num_theta)
                 
@@ -218,7 +223,7 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
     # =========================================================================
     # APPLICATION DES SCALERS
     # =========================================================================
-    model_name = f"{entree}_{residuelle}_{inter}"
+    model_name = format_scaler_name(entree, residuelle, inter, bem_suffix)
     os.makedirs("training/scalers", exist_ok=True)
     path_x = f"training/scalers/scaler_X_{model_name}.pkl"
     path_y = f"training/scalers/scaler_Y_{model_name}.pkl"    
@@ -253,15 +258,17 @@ def format_data(df, entree, residuelle, inter, is_train=True, device='cpu'):
 
     return torch.tensor(X_scaled, device=device), torch.tensor(Y_scaled, device=device)
 
-def format_bem_as_Y(df, entree, inter, scaler_Y, device='cpu'):
+def format_bem_as_Y(df, entree, inter, scaler_Y, bem_suffix, device='cpu'):
     """
-    Retourne les forces BEM dans le même espace de normalisation que Y,
-    pour permettre leur encodage via l'AE SVEN (stratégie '2+').
+    Retourne les forces BEM (variante `bem_suffix` : DUM/IFP/P&P) dans le même espace de
+    normalisation que Y, pour permettre leur encodage via l'AE SVEN (stratégie '2+').
     - GV : (N, 5184) — même format interleaved que Y
     - GM : (N, 2, 36, 72) — même format 2-canaux que Y
     """
     geom = get_geometry()
     Y_bem_list = []
+    fn_bem_col, ft_bem_col = f'Fn_BEM_{bem_suffix}', f'Ft_BEM_{bem_suffix}'
+    v_eff_bem_col, alpha_bem_col = f'V_eff_BEM_{bem_suffix}', f'alpha_BEM_{bem_suffix}'
 
     for _, group in df.groupby(['yaw', 'TSR'] if 'TSR' in df.columns else 'yaw'):
         if entree == 'GV':
@@ -271,12 +278,12 @@ def format_bem_as_Y(df, entree, inter, scaler_Y, device='cpu'):
                 for _, row in group.iterrows():
                     v_app_sq = row['v_app']**2 if 'v_app' in row else compute_V_app(pd.DataFrame([row]))[0]**2
                     D = 0.5 * RHO * v_app_sq * np.abs(geom.get_chord(row['r']))
-                    y_val.extend([row['Fn_BEM'] / D, row['Ft_BEM'] / D])
+                    y_val.extend([row[fn_bem_col] / D, row[ft_bem_col] / D])
             else:  # inter == 'v'
                 v_app_b = compute_V_app(group)
-                alpha_bem_rad = np.radians(group['alpha_BEM'].values)
-                an_bem = np.sin(alpha_bem_rad) * group['V_eff_BEM'].values / v_app_b
-                at_bem = np.cos(alpha_bem_rad) * group['V_eff_BEM'].values / v_app_b
+                alpha_bem_rad = np.radians(group[alpha_bem_col].values)
+                an_bem = np.sin(alpha_bem_rad) * group[v_eff_bem_col].values / v_app_b
+                at_bem = np.cos(alpha_bem_rad) * group[v_eff_bem_col].values / v_app_b
                 for an, at in zip(an_bem, at_bem):
                     y_val.extend([an, at])
             Y_bem_list.append(y_val)
@@ -289,13 +296,13 @@ def format_bem_as_Y(df, entree, inter, scaler_Y, device='cpu'):
                 v_app_grid = compute_V_app(group).reshape(num_r, num_theta)
                 chord_grid = geom.get_chord(group['r'].values).reshape(num_r, num_theta)
                 D_grid = 0.5 * RHO * v_app_grid**2 * np.abs(chord_grid)
-                y1 = group['Fn_BEM'].values.reshape(num_r, num_theta) / D_grid
-                y2 = group['Ft_BEM'].values.reshape(num_r, num_theta) / D_grid
+                y1 = group[fn_bem_col].values.reshape(num_r, num_theta) / D_grid
+                y2 = group[ft_bem_col].values.reshape(num_r, num_theta) / D_grid
             else:  # inter == 'v'
                 v_app_grid = compute_V_app(group).reshape(num_r, num_theta)
-                alpha_bem_rad = np.radians(group['alpha_BEM'].values.reshape(num_r, num_theta))
-                y1 = np.sin(alpha_bem_rad) * group['V_eff_BEM'].values.reshape(num_r, num_theta) / v_app_grid
-                y2 = np.cos(alpha_bem_rad) * group['V_eff_BEM'].values.reshape(num_r, num_theta) / v_app_grid
+                alpha_bem_rad = np.radians(group[alpha_bem_col].values.reshape(num_r, num_theta))
+                y1 = np.sin(alpha_bem_rad) * group[v_eff_bem_col].values.reshape(num_r, num_theta) / v_app_grid
+                y2 = np.cos(alpha_bem_rad) * group[v_eff_bem_col].values.reshape(num_r, num_theta) / v_app_grid
             Y_bem_list.append(np.stack([y1, y2], axis=0))
 
     Y_bem_np = np.array(Y_bem_list, dtype=np.float32)

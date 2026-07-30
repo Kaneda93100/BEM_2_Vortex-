@@ -9,7 +9,7 @@ from core.models import TurbineMLP, TurbineCNN, ConvolutionalAutoencoder, Linear
 from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor, format_bem_as_Y
 from training.src.trainer import cross_validate
 from core.physics import get_geometry, compute_dynamic_pressure_D
-from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS_NOAE, LR_BOUNDS_AE, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR, get_ae_residual_key
+from core.config import EPOCHS_OPTUNA, CV_SPLITS, LR_BOUNDS_NOAE, LR_BOUNDS_AE, DROPOUT_BOUNDS, MLP_LAYERS_BOUNDS, MLP_NEURONS_CHOICES, CNN_LAYERS_BOUNDS, CNN_FILTERS_CHOICES, PRUNER_WARMUP, AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, RHO, OMEGA, R_ROTOR, format_scaler_name, format_ae_key
 
 def get_u_inf_tensor(df, device='cpu'):
     u_inf_list = []
@@ -19,20 +19,20 @@ def get_u_inf_tensor(df, device='cpu'):
         u_inf_list.append(u_inf)
     return torch.tensor(u_inf_list, dtype=torch.float32, device=device)
 
-def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_name, n_trials=40):
+def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_name, n_trials=40, bem_suffix=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     has_plus = '+' in str(residuelle)
     os.makedirs("training/hyperparametres", exist_ok=True)
 
-    X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
+    X_full, Y_full = format_data(df_train, entree, residuelle, inter, is_train=True, device=device, bem_suffix=bem_suffix)
     is_cnn = (entree == 'GM')
 
-    with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_{inter}.pkl", 'rb') as f:
+    with open(f"training/scalers/scaler_Y_{format_scaler_name(entree, residuelle, inter, bem_suffix)}.pkl", 'rb') as f:
         scaler_Y = pickle.load(f)
     scaler_Y_torch = TorchScaler(scaler_Y, device)
 
     # Précalcul du BEM dans l'espace Y (pour encodage dans objective_model si '2+')
-    Y_bem_full = format_bem_as_Y(df_train, entree, inter, scaler_Y, device) if has_plus else None
+    Y_bem_full = format_bem_as_Y(df_train, entree, inter, scaler_Y, bem_suffix, device) if has_plus else None
     n_scalaires_full = (2 if 'TSR' in df_train.columns else 1) if has_plus else 0
 
     u_inf_full = get_u_inf_tensor(df_train, device)
@@ -164,8 +164,7 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
         if has_ae:
             ae_nature = trial.suggest_categorical('ae_nature', AE_NATURES)
             ae_dim = trial.suggest_categorical('ae_dim', AE_DIMS)
-            res_base = get_ae_residual_key(residuelle)
-            ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
+            ae_key = format_ae_key(residuelle, inter, ae_nature, ae_dim, bem_suffix)
             ae_params = all_ae_params[ae_key]
             current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_params['ae_depth'], base_filters=ae_params['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_params['ae_depth'], device=device).to(device)
             current_ae.load_state_dict(torch.load(os.path.join(AE_WEIGHTS_DIR, f"ae_{ae_key}.pth"), map_location=device))
@@ -246,8 +245,8 @@ def optimize(df_train, entree, residuelle, inter, has_ae, option, model_base_nam
     })
     
     if has_ae:
-        res_base = get_ae_residual_key(residuelle)
-        best_params.update(all_ae_params[f"{res_base}_{inter}_D{best_params['ae_nature']}{best_params['ae_dim']}"])
+        best_ae_key = format_ae_key(residuelle, inter, best_params['ae_nature'], best_params['ae_dim'], bem_suffix)
+        best_params.update(all_ae_params[best_ae_key])
         
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
     all_model_params = json.load(open(target_json, "r")) if os.path.exists(target_json) else {}

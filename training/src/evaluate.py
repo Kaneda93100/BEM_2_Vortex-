@@ -17,7 +17,8 @@ from training.src.data_loader import format_data, get_D_tensor, get_V_app_tensor
 from training.src.trainer import fit_model, cross_validate
 from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
 from core.config import (EPOCHS_FINAL, CV_SPLITS, RATIO_THRESHOLD, RHO, OMEGA, R_ROTOR,
-                         AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR, get_ae_residual_key)
+                         AE_NATURES, AE_DIMS, AE_JSON_PATH, AE_WEIGHTS_DIR,
+                         format_scaler_name, format_model_name, format_ae_key)
 
 XLSX_PATH = "training/performance/recap_scores.xlsx"
 
@@ -46,7 +47,7 @@ def get_u_inf_tensor(df, device='cpu'):
         u_inf_list.append(u_inf)
     return torch.tensor(u_inf_list, dtype=torch.float32, device=device)
 
-def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
+def reconstruct_predictions(df, preds_flat, entree, residuelle, inter, bem_suffix=None):
     # Les prédictions sont produites dans l'ordre (yaw, [TSR]) puis (theta, r) pour GV
     # ou (r, theta) pour GM.
     group_keys = ['yaw', 'TSR'] if 'TSR' in df.columns else ['yaw']
@@ -56,27 +57,28 @@ def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
         v_app = df_res['v_app'].values if 'v_app' in df_res.columns else compute_V_app(df_res)
         if str(residuelle) in ['1']:
             an_res, at_res = preds_flat[:, 0::2].flatten(), preds_flat[:, 1::2].flatten()
-            if 'an_BEM' in df_res.columns:
-                an_bem = df_res['an_BEM'].values
-                at_bem = df_res['at_BEM'].values
+            an_bem_col, at_bem_col = f'an_BEM_{bem_suffix}', f'at_BEM_{bem_suffix}'
+            if an_bem_col in df_res.columns:
+                an_bem = df_res[an_bem_col].values
+                at_bem = df_res[at_bem_col].values
             else:
-                alpha_bem_rad = np.radians(df_res['alpha_BEM'].values)
-                v_eff_bem = df_res['V_eff_BEM'].values
+                alpha_bem_rad = np.radians(df_res[f'alpha_BEM_{bem_suffix}'].values)
+                v_eff_bem = df_res[f'V_eff_BEM_{bem_suffix}'].values
                 an_bem = np.sin(alpha_bem_rad) * v_eff_bem / v_app
                 at_bem = np.cos(alpha_bem_rad) * v_eff_bem / v_app
             an_abs = an_res + an_bem
             at_abs = at_res + at_bem
         else:
             an_abs, at_abs = preds_flat[:, 0::2].flatten(), preds_flat[:, 1::2].flatten()
-        
+
         alpha_rad = np.arctan2(an_abs, at_abs)
         v_eff = v_app * np.sqrt(an_abs**2 + at_abs**2)
         fn_pred, ft_pred = convert_v_to_f(v_eff, np.degrees(alpha_rad), df_res['r'].values)
     else:
         if str(residuelle) in ['1']:
             fn_res, ft_res = preds_flat[:, 0::2].flatten(), preds_flat[:, 1::2].flatten()
-            fn_pred = fn_res + df_res['Fn_BEM'].values
-            ft_pred = ft_res + df_res['Ft_BEM'].values
+            fn_pred = fn_res + df_res[f'Fn_BEM_{bem_suffix}'].values
+            ft_pred = ft_res + df_res[f'Ft_BEM_{bem_suffix}'].values
         else:
             fn_pred, ft_pred = preds_flat[:, 0::2].flatten(), preds_flat[:, 1::2].flatten()
 
@@ -84,14 +86,14 @@ def reconstruct_predictions(df, preds_flat, entree, residuelle, inter):
     df_res['Ft_pred'] = ft_pred
     return df_res
 
-def denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_cnn):
+def denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_cnn, bem_suffix=None):
     if inter == 'v':
         if is_cnn:
             preds_coeffs_2d = np.zeros((preds_coeffs.shape[0], 5184))
             preds_coeffs_2d[:, 0::2] = preds_coeffs[:, 0, :, :].reshape(preds_coeffs.shape[0], -1)
             preds_coeffs_2d[:, 1::2] = preds_coeffs[:, 1, :, :].reshape(preds_coeffs.shape[0], -1)
             preds_coeffs = preds_coeffs_2d
-        return reconstruct_predictions(df_test, preds_coeffs, entree, residuelle, inter)
+        return reconstruct_predictions(df_test, preds_coeffs, entree, residuelle, inter, bem_suffix)
 
     D_test_np = get_D_tensor(df_test, entree, 'cpu').numpy()
     if is_cnn:
@@ -104,7 +106,7 @@ def denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_
     else:
         D_test_flat = D_test_np.reshape(D_test_np.shape[0], -1)
         preds_denorm = preds_coeffs * D_test_flat
-    return reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter)
+    return reconstruct_predictions(df_test, preds_denorm, entree, residuelle, inter, bem_suffix)
 
 def score_ABC(df_res):
     Fn_p, Ft_p = df_res['Fn_pred'].values, df_res['Ft_pred'].values
@@ -126,11 +128,11 @@ def score_ABC(df_res):
 
     return m_c + m_d, m_e + m_f, m_i + m_j
 
-def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, baseline_scores, pct=100):
+def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, baseline_scores, pct=100, bem_suffix=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     has_plus = '+' in str(residuelle)
     ae_label = "DXY" if has_ae else "D0"
-    model_base_name = f"{entree}_{residuelle}_{inter}_{ae_label}_{option}_P{pct}"
+    model_base_name = format_model_name(entree, residuelle, inter, ae_label, option, pct, bem_suffix)
 
     target_json = f"training/hyperparametres/{entree.lower()}_hyperparameters.json"
     if not os.path.exists(target_json):
@@ -146,7 +148,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
     l1, l2, l3 = best_params.get("l1", 0.0), best_params.get("l2", 1.0), best_params.get("l3", 0.0)
 
     final_ae_str = f"D{ae_nature}{ae_dim}" if has_ae else "D0"
-    final_model_name = f"{entree}_{residuelle}_{inter}_{final_ae_str}_{option}_P{pct}"
+    final_model_name = format_model_name(entree, residuelle, inter, final_ae_str, option, pct, bem_suffix)
     
     print(f"\n{'='*50}")
     print(f" ÉVALUATION : {final_model_name}")
@@ -156,10 +158,10 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
 
     # ── Étape 1 : Préparation des données ──────────────────────────────────
     t0 = time.perf_counter()
-    X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=True, device=device)
-    X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device)
+    X_train, Y_train = format_data(df_train, entree, residuelle, inter, is_train=True, device=device, bem_suffix=bem_suffix)
+    X_test, Y_test = format_data(df_test, entree, residuelle, inter, is_train=False, device=device, bem_suffix=bem_suffix)
 
-    with open(f"training/scalers/scaler_Y_{entree}_{residuelle}_{inter}.pkl", 'rb') as f:
+    with open(f"training/scalers/scaler_Y_{format_scaler_name(entree, residuelle, inter, bem_suffix)}.pkl", 'rb') as f:
         scaler_Y = pickle.load(f)
     scaler_Y_torch = TorchScaler(scaler_Y, device)
 
@@ -206,8 +208,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
             F_BEM_phys_train = fn_ft_sven - fn_ft_delta
 
     if has_ae:
-        res_base = get_ae_residual_key(residuelle)
-        ae_key = f"{res_base}_{inter}_D{ae_nature}{ae_dim}"
+        ae_key = format_ae_key(residuelle, inter, ae_nature, ae_dim, bem_suffix)
         ae_configs = json.load(open(AE_JSON_PATH, "r"))
         ae_config = ae_configs[ae_key]
         current_ae = ConvolutionalAutoencoder(in_channels=2, latent_dim=ae_dim, depth=ae_config['ae_depth'], base_filters=ae_config['ae_base_filters'], device=device).to(device) if ae_nature == 'M' else LinearAutoencoder(in_features=5184, latent_dim=ae_dim, n_layers=ae_config['ae_depth'], device=device).to(device)
@@ -300,7 +301,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
         df_val = pd.concat([groups_list_cv[i] for i in val_idx_sorted], ignore_index=True)
         coeffs_pred_delta_np = coeffs_pred[order].detach().cpu().numpy()
         df_val['D_phys'] = compute_dynamic_pressure_D(df_val)
-        df_res_val = denorm_and_reconstruct(df_val, coeffs_pred_delta_np, entree, residuelle, inter, is_cnn)
+        df_res_val = denorm_and_reconstruct(df_val, coeffs_pred_delta_np, entree, residuelle, inter, is_cnn, bem_suffix)
         _, _, score_c = score_ABC(df_res_val)
 
         return {'A': score_a, 'B': score_b, 'C': score_c}
@@ -338,7 +339,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
         preds_coeffs = scaler_Y_torch.inverse_transform(preds_norm).cpu().numpy()
 
     df_test['D_phys'] = compute_dynamic_pressure_D(df_test)
-    df_res = denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_cnn)
+    df_res = denorm_and_reconstruct(df_test, preds_coeffs, entree, residuelle, inter, is_cnn, bem_suffix)
 
     # Borne inf du score pour les modèles à AE : decode(encode(Y_true)) vs Y_true.
     AE_Score_A = AE_Score_B = AE_Score_C = None
@@ -349,7 +350,7 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
             decoded_true = current_ae.decode(current_ae.encode(y_true_ae_in))
             preds_norm_ae = adapt_ae_output_to_target(decoded_true, Y_test)
             preds_coeffs_ae = scaler_Y_torch.inverse_transform(preds_norm_ae).cpu().numpy()
-        df_res_ae = denorm_and_reconstruct(df_test, preds_coeffs_ae, entree, residuelle, inter, is_cnn)
+        df_res_ae = denorm_and_reconstruct(df_test, preds_coeffs_ae, entree, residuelle, inter, is_cnn, bem_suffix)
         AE_Score_A, AE_Score_B, AE_Score_C = score_ABC(df_res_ae)
 
     pbar.set_postfix_str(f"Inférence : {time.perf_counter()-t0:.1f}s")
@@ -412,21 +413,23 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
     pbar.update(1)
     pbar.close()
 
-def evaluate_baselines(df_test):
+def evaluate_baselines(df_test, bem_suffix):
+    fn_bem_col, ft_bem_col = f'Fn_BEM_{bem_suffix}', f'Ft_BEM_{bem_suffix}'
     df_bem = df_test.copy()
     D_res = compute_dynamic_pressure_D(df_bem)
     df_bem['D_phys'] = D_res
-    
-    Fn_s, Ft_s, Fn_b, Ft_b = df_test['Fn_SVEN'].values, df_test['Ft_SVEN'].values, df_test['Fn_BEM'].values, df_test['Ft_BEM'].values
+
+    Fn_s, Ft_s, Fn_b, Ft_b = df_test['Fn_SVEN'].values, df_test['Ft_SVEN'].values, df_test[fn_bem_col].values, df_test[ft_bem_col].values
     m_a, m_b = np.sqrt(np.mean((Fn_b - Fn_s)**2)), np.sqrt(np.mean((Ft_b - Ft_s)**2))
     m_c, m_d = np.sqrt(np.mean(((Fn_b - Fn_s) / np.abs(Fn_s))**2)) * 100, np.sqrt(np.mean(((Ft_b - Ft_s) / np.maximum(np.abs(Ft_s), 1.0))**2)) * 100
     m_e, m_f = np.sqrt(np.mean(((Fn_b/D_res) - (Fn_s/D_res))**2)) * 100, np.sqrt(np.mean(((Ft_b/D_res) - (Ft_s/D_res))**2)) * 100
 
-    c_bem = compute_cp(df_bem, 'Fn_BEM', 'Ft_BEM').set_index('yaw')
-    Cp_b, Ct_b = df_bem['yaw'].map(c_bem['Cp_BEM']).values, df_bem['yaw'].map(c_bem['Ct_BEM']).values
+    c_bem = compute_cp(df_bem, fn_bem_col, ft_bem_col).set_index('yaw')  # colonnes Cp_/Ct_ nommées d'après col_fn (cf. core/physics.py::compute_cp)
+    bem_model_name = fn_bem_col.replace('Fn_', '')
+    Cp_b, Ct_b = df_bem['yaw'].map(c_bem[f'Cp_{bem_model_name}']).values, df_bem['yaw'].map(c_bem[f'Ct_{bem_model_name}']).values
     c_sven = compute_cp(df_bem, 'Fn_SVEN', 'Ft_SVEN').set_index('yaw')
     Cp_s, Ct_s = df_bem['yaw'].map(c_sven['Cp_SVEN']).values, df_bem['yaw'].map(c_sven['Ct_SVEN']).values
-    
+
     m_g, m_h = np.sqrt(np.mean((Cp_b - Cp_s)**2)), np.sqrt(np.mean((Ct_b - Ct_s)**2))
     m_i, m_j = np.sqrt(np.mean(((Cp_b - Cp_s) / np.abs(Cp_s))**2)) * 100, np.sqrt(np.mean(((Ct_b - Ct_s) / np.abs(Ct_s))**2)) * 100
 
@@ -436,7 +439,7 @@ def evaluate_baselines(df_test):
     wd_ct = wasserstein_distance(Ct_s, Ct_b)
     wd_total = wasserstein_distance(np.concatenate([Fn_s, Ft_s]), np.concatenate([Fn_b, Ft_b]))
 
-    base_dict = {"Modele": "BASELINE_BEM"}
+    base_dict = {"Modele": f"BASELINE_BEM_{bem_suffix}"}
     save_to_xlsx(XLSX_PATH, "recap_super", {**base_dict, "BEM_Ratio_C": 1.00, "Best_BEM_Ratio_AB": 1.00})
     save_to_xlsx(XLSX_PATH, "recap_Fn", {**base_dict, "err_abs_Nm": round(m_a, 4), "err_rel_%": round(m_c, 2), "err_normD_%": round(m_e, 2), "WD_Fn": round(wd_fn, 4)})
     save_to_xlsx(XLSX_PATH, "recap_Ft", {**base_dict, "err_abs_Nm": round(m_b, 4), "err_rel_%": round(m_d, 2), "err_normD_%": round(m_f, 2), "WD_Ft": round(wd_ft, 4)})

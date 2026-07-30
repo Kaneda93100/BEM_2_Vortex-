@@ -13,7 +13,7 @@ from training.src.data_loader import load_clean_data
 from core.models import PolarSurrogate, convert_v_to_f_torch,compute_cp_ct_torch
 from core.physics import convert_v_to_f, get_geometry, compute_dynamic_pressure_D, compute_cp, compute_V_app
 # Constantes pour le calcul de V_app
-from core.config import OMEGA, R_ROTOR
+from core.config import OMEGA, R_ROTOR, DEFAULT_BEM_SUFFIX
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,7 +34,7 @@ def main():
     r_tensor = torch.tensor(r_vals, dtype=torch.float32, device=device)
     c_tensor = torch.tensor(c_vals, dtype=torch.float32, device=device)
 
-    sources = ['BEM', 'SVEN']
+    sources = [f'BEM_{DEFAULT_BEM_SUFFIX}', 'SVEN']
     for source_label in sources:
         print(f"\n=== VÉRIFICATION DES DONNÉES {source_label.upper()} ===")
         

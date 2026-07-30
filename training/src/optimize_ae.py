@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from core.models import ConvolutionalAutoencoder, LinearAutoencoder, TorchScaler
 from training.src.data_loader import format_data, get_D_tensor
 from training.src.trainer import fit_model, cross_validate
-from core.config import EPOCHS_AE, TRIALS_AE, LR_BOUNDS_AE_PRETRAIN, CV_SPLITS, AE_LAYERS_BOUNDS, get_ae_residual_key
+from core.config import EPOCHS_AE, TRIALS_AE, LR_BOUNDS_AE_PRETRAIN, CV_SPLITS, AE_LAYERS_BOUNDS, format_ae_key, format_scaler_name
 
 class AEPhysicalLoss(nn.Module):
     """
@@ -48,12 +48,10 @@ class AEPhysicalLoss(nn.Module):
         return nn.functional.mse_loss(err_norm, torch.zeros_like(err_norm))
 
 
-def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_trials=TRIALS_AE):
+def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_trials=TRIALS_AE, bem_suffix=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    suffixe = f"D{ae_nature}{latent_dim}"
-    ae_res_key = get_ae_residual_key(residuelle)
-    saved_name = f"{ae_res_key}_{inter}_{suffixe}"
+    saved_name = format_ae_key(residuelle, inter, ae_nature, latent_dim, bem_suffix)
 
     os.makedirs("training/hyperparametres", exist_ok=True)
     os.makedirs("training/models/ae", exist_ok=True)
@@ -65,7 +63,7 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
 
     # Toujours charger Y en format canonique GM (N, 2, 36, 72),
     # indépendamment de l'entrée du modèle prédictif (GV ou GM)
-    _, Y_full_raw = format_data(df_train, 'GM', residuelle, inter, is_train=True, device=device)
+    _, Y_full_raw = format_data(df_train, 'GM', residuelle, inter, is_train=True, device=device, bem_suffix=bem_suffix)
 
     is_cnn_for_ae = (ae_nature == 'M')
 
@@ -90,7 +88,7 @@ def optimize_and_train_ae(df_train, residuelle, inter, latent_dim, ae_nature, n_
         scaler_F_abs.fit(np.hstack([fn_abs, ft_abs]))
 
         # Scaler de l'espace cible en format canonique GM
-        scaler_path = f"training/scalers/scaler_Y_GM_{residuelle}_{inter}.pkl"
+        scaler_path = f"training/scalers/scaler_Y_{format_scaler_name('GM', residuelle, inter, bem_suffix)}.pkl"
         with open(scaler_path, 'rb') as f:
             scaler_Y = pickle.load(f)
 
