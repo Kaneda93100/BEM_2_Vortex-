@@ -1,365 +1,365 @@
 {
     "0_f_DV16": {
-        "ae_lr": 0.0005454548809723896,
+        "ae_lr": 0.00045019459425392873,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 16
     },
     "0_f_DV32": {
-        "ae_lr": 0.0006221753294843126,
+        "ae_lr": 0.0003414543916722282,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 32
     },
     "0_f_DV64": {
-        "ae_lr": 0.00036025092842651324,
+        "ae_lr": 0.00023618133775276667,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 64
     },
     "0_f_DV128": {
-        "ae_lr": 0.00038531408077562126,
+        "ae_lr": 0.00020219757854913692,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 128
     },
     "0_f_DV256": {
-        "ae_lr": 0.0005950778879830595,
+        "ae_lr": 0.00033769987951429457,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 256
     },
     "0_f_DV512": {
-        "ae_lr": 0.00018472338798988778,
-        "ae_depth": 3,
+        "ae_lr": 0.0006586229287794157,
+        "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 512
     },
     "0_f_DV1024": {
-        "ae_lr": 0.000595939745095125,
-        "ae_depth": 3,
+        "ae_lr": 0.00011438281730686574,
+        "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 1024
     },
     "0_f_DM16": {
-        "ae_lr": 0.0017941710099699465,
-        "ae_depth": 2,
+        "ae_lr": 0.004505305735997917,
+        "ae_depth": 3,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 16
     },
     "0_f_DM32": {
-        "ae_lr": 0.004036320602665436,
-        "ae_depth": 2,
-        "ae_base_filters": 8,
+        "ae_lr": 0.0023189055725476755,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 32
     },
     "0_f_DM64": {
-        "ae_lr": 0.002033895756323863,
+        "ae_lr": 0.0026296565386286046,
         "ae_depth": 3,
-        "ae_base_filters": 16,
+        "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 64
     },
     "0_f_DM128": {
-        "ae_lr": 0.0011256958516423635,
+        "ae_lr": 0.0003494406473291476,
         "ae_depth": 4,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 128
     },
     "0_f_DM256": {
-        "ae_lr": 0.0018008154473509704,
-        "ae_depth": 2,
-        "ae_base_filters": 16,
+        "ae_lr": 0.0012872814772683884,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 256
     },
     "0_f_DM512": {
-        "ae_lr": 0.00034553637294313776,
-        "ae_depth": 2,
+        "ae_lr": 0.0013063911945307668,
+        "ae_depth": 3,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 512
     },
     "0_f_DM1024": {
-        "ae_lr": 0.00019461226960857178,
-        "ae_depth": 3,
+        "ae_lr": 0.0002894687978670106,
+        "ae_depth": 4,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 1024
     },
     "0_v_DV16": {
-        "ae_lr": 0.000495112108341984,
+        "ae_lr": 0.0006960831115296919,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 16
     },
     "0_v_DV32": {
-        "ae_lr": 0.0003968114715192839,
+        "ae_lr": 0.0008346017743721559,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 32
     },
     "0_v_DV64": {
-        "ae_lr": 0.00016290166905460565,
+        "ae_lr": 0.0012392446977709936,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 64
     },
     "0_v_DV128": {
-        "ae_lr": 0.0002084127046682434,
+        "ae_lr": 0.00046540293079801734,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 128
     },
     "0_v_DV256": {
-        "ae_lr": 0.0003210783767967071,
+        "ae_lr": 0.00034418521880018505,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 256
     },
     "0_v_DV512": {
-        "ae_lr": 0.00010545007249734983,
+        "ae_lr": 0.00027642453902295295,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 512
     },
     "0_v_DV1024": {
-        "ae_lr": 0.0002655104200330057,
+        "ae_lr": 0.00010396152296461405,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 1024
     },
     "0_v_DM16": {
-        "ae_lr": 0.003507822922960219,
-        "ae_depth": 4,
+        "ae_lr": 0.004240141050613165,
+        "ae_depth": 2,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 16
     },
     "0_v_DM32": {
-        "ae_lr": 0.004397012210252537,
-        "ae_depth": 2,
+        "ae_lr": 0.0014175540950661094,
+        "ae_depth": 4,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 32
     },
     "0_v_DM64": {
-        "ae_lr": 0.0023863503186839176,
-        "ae_depth": 4,
-        "ae_base_filters": 32,
+        "ae_lr": 0.0044782825060546635,
+        "ae_depth": 2,
+        "ae_base_filters": 8,
         "use_autoencoder": true,
         "latent_dim": 64
     },
     "0_v_DM128": {
-        "ae_lr": 0.004971619992092119,
+        "ae_lr": 0.0020860849028858028,
         "ae_depth": 3,
-        "ae_base_filters": 16,
+        "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 128
     },
     "0_v_DM256": {
-        "ae_lr": 0.0024410652833029693,
-        "ae_depth": 2,
-        "ae_base_filters": 32,
+        "ae_lr": 0.002728933513963149,
+        "ae_depth": 3,
+        "ae_base_filters": 16,
         "use_autoencoder": true,
         "latent_dim": 256
     },
     "0_v_DM512": {
-        "ae_lr": 0.0018153950628054785,
-        "ae_depth": 2,
+        "ae_lr": 0.0011709467174607557,
+        "ae_depth": 3,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 512
     },
     "0_v_DM1024": {
-        "ae_lr": 0.004675991310504976,
+        "ae_lr": 0.00275971493427761,
         "ae_depth": 2,
-        "ae_base_filters": 16,
+        "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 1024
     },
-    "1_f_DV16": {
-        "ae_lr": 0.0020233571035340736,
+    "1_f_IFP_DV16": {
+        "ae_lr": 0.0006842290170157828,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 16
     },
-    "1_f_DV32": {
-        "ae_lr": 0.0036355985218152064,
+    "1_f_IFP_DV32": {
+        "ae_lr": 0.0005729284558778382,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 32
     },
-    "1_f_DV64": {
-        "ae_lr": 0.0006620101391422271,
+    "1_f_IFP_DV64": {
+        "ae_lr": 0.0014764488214441848,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 64
     },
-    "1_f_DV128": {
-        "ae_lr": 0.0003252339604559422,
+    "1_f_IFP_DV128": {
+        "ae_lr": 0.0005929979863498209,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 128
     },
-    "1_f_DV256": {
-        "ae_lr": 0.0004541316567782038,
+    "1_f_IFP_DV256": {
+        "ae_lr": 0.00028082523677418414,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 256
     },
-    "1_f_DV512": {
-        "ae_lr": 0.00025949934396238435,
+    "1_f_IFP_DV512": {
+        "ae_lr": 0.0001939359192865084,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 512
     },
-    "1_f_DV1024": {
-        "ae_lr": 0.0001239512028765857,
+    "1_f_IFP_DV1024": {
+        "ae_lr": 0.00016896929738564564,
         "ae_depth": 2,
         "use_autoencoder": true,
         "latent_dim": 1024
     },
-    "1_f_DM16": {
-        "ae_lr": 0.0020738558398063272,
-        "ae_depth": 2,
-        "ae_base_filters": 32,
-        "use_autoencoder": true,
-        "latent_dim": 16
-    },
-    "1_f_DM32": {
-        "ae_lr": 0.00218842843564996,
-        "ae_depth": 2,
-        "ae_base_filters": 32,
-        "use_autoencoder": true,
-        "latent_dim": 32
-    },
-    "1_f_DM64": {
-        "ae_lr": 0.0025139477210877393,
-        "ae_depth": 2,
-        "ae_base_filters": 32,
-        "use_autoencoder": true,
-        "latent_dim": 64
-    },
-    "1_f_DM128": {
-        "ae_lr": 0.0010361395652221635,
-        "ae_depth": 4,
-        "ae_base_filters": 32,
-        "use_autoencoder": true,
-        "latent_dim": 128
-    },
-    "1_f_DM256": {
-        "ae_lr": 0.0031020701612391186,
-        "ae_depth": 2,
-        "ae_base_filters": 16,
-        "use_autoencoder": true,
-        "latent_dim": 256
-    },
-    "1_f_DM512": {
-        "ae_lr": 0.0012062782862698657,
-        "ae_depth": 2,
-        "ae_base_filters": 32,
-        "use_autoencoder": true,
-        "latent_dim": 512
-    },
-    "1_f_DM1024": {
-        "ae_lr": 0.0020816075094227462,
+    "1_f_IFP_DM16": {
+        "ae_lr": 0.001294370290039661,
         "ae_depth": 4,
         "ae_base_filters": 16,
         "use_autoencoder": true,
-        "latent_dim": 1024
-    },
-    "1_v_DV16": {
-        "ae_lr": 0.00040818627380526036,
-        "ae_depth": 2,
-        "use_autoencoder": true,
         "latent_dim": 16
     },
-    "1_v_DV32": {
-        "ae_lr": 0.0008147198797474442,
-        "ae_depth": 2,
-        "use_autoencoder": true,
-        "latent_dim": 32
-    },
-    "1_v_DV64": {
-        "ae_lr": 0.0001375624427316359,
-        "ae_depth": 2,
-        "use_autoencoder": true,
-        "latent_dim": 64
-    },
-    "1_v_DV128": {
-        "ae_lr": 0.00030758210957106716,
-        "ae_depth": 2,
-        "use_autoencoder": true,
-        "latent_dim": 128
-    },
-    "1_v_DV256": {
-        "ae_lr": 0.0002460275475763176,
-        "ae_depth": 2,
-        "use_autoencoder": true,
-        "latent_dim": 256
-    },
-    "1_v_DV512": {
-        "ae_lr": 0.00017391444457164832,
-        "ae_depth": 2,
-        "use_autoencoder": true,
-        "latent_dim": 512
-    },
-    "1_v_DV1024": {
-        "ae_lr": 0.00013661501317252745,
-        "ae_depth": 3,
-        "use_autoencoder": true,
-        "latent_dim": 1024
-    },
-    "1_v_DM16": {
-        "ae_lr": 0.0017176790817048716,
-        "ae_depth": 3,
-        "ae_base_filters": 16,
-        "use_autoencoder": true,
-        "latent_dim": 16
-    },
-    "1_v_DM32": {
-        "ae_lr": 0.002529614336206649,
-        "ae_depth": 2,
+    "1_f_IFP_DM32": {
+        "ae_lr": 0.0005549284706613852,
+        "ae_depth": 4,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 32
     },
-    "1_v_DM64": {
-        "ae_lr": 0.0036571474723988955,
+    "1_f_IFP_DM64": {
+        "ae_lr": 0.0020414396586838925,
         "ae_depth": 2,
-        "ae_base_filters": 16,
+        "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 64
     },
-    "1_v_DM128": {
-        "ae_lr": 0.002310463306139224,
+    "1_f_IFP_DM128": {
+        "ae_lr": 0.00042404557920763206,
         "ae_depth": 2,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 128
     },
-    "1_v_DM256": {
-        "ae_lr": 0.0005749265106809725,
+    "1_f_IFP_DM256": {
+        "ae_lr": 0.0012467103901746153,
         "ae_depth": 2,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 256
     },
-    "1_v_DM512": {
-        "ae_lr": 0.0004566955242044581,
+    "1_f_IFP_DM512": {
+        "ae_lr": 0.00035417166173156095,
         "ae_depth": 2,
         "ae_base_filters": 32,
         "use_autoencoder": true,
         "latent_dim": 512
     },
-    "1_v_DM1024": {
-        "ae_lr": 0.0018721042227789213,
+    "1_f_IFP_DM1024": {
+        "ae_lr": 0.0012412548243327258,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 1024
+    },
+    "1_v_IFP_DV16": {
+        "ae_lr": 0.0004244223189893596,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "1_v_IFP_DV32": {
+        "ae_lr": 0.0004622822540230356,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "1_v_IFP_DV64": {
+        "ae_lr": 0.00011278858509502413,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 64
+    },
+    "1_v_IFP_DV128": {
+        "ae_lr": 0.0003797956083966,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "1_v_IFP_DV256": {
+        "ae_lr": 0.00030459884724096207,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "1_v_IFP_DV512": {
+        "ae_lr": 0.00010255386354175838,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 512
+    },
+    "1_v_IFP_DV1024": {
+        "ae_lr": 0.0002515433667631519,
+        "ae_depth": 2,
+        "use_autoencoder": true,
+        "latent_dim": 1024
+    },
+    "1_v_IFP_DM16": {
+        "ae_lr": 0.0009635878905119332,
         "ae_depth": 3,
         "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 16
+    },
+    "1_v_IFP_DM32": {
+        "ae_lr": 0.001699916475232226,
+        "ae_depth": 3,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 32
+    },
+    "1_v_IFP_DM64": {
+        "ae_lr": 0.0016807445423474043,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 64
+    },
+    "1_v_IFP_DM128": {
+        "ae_lr": 0.0019076858874890457,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
+        "use_autoencoder": true,
+        "latent_dim": 128
+    },
+    "1_v_IFP_DM256": {
+        "ae_lr": 0.004459708337322111,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 256
+    },
+    "1_v_IFP_DM512": {
+        "ae_lr": 0.004468899607863867,
+        "ae_depth": 2,
+        "ae_base_filters": 32,
+        "use_autoencoder": true,
+        "latent_dim": 512
+    },
+    "1_v_IFP_DM1024": {
+        "ae_lr": 0.0027614104558292326,
+        "ae_depth": 2,
+        "ae_base_filters": 16,
         "use_autoencoder": true,
         "latent_dim": 1024
     }
