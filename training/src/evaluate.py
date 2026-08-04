@@ -222,8 +222,8 @@ def evaluator(df_train, df_test, entree, residuelle, inter, has_ae, option, base
     if has_plus and current_ae is not None:
         n_scalaires = 2 if 'TSR' in df_train.columns else 1
         with torch.no_grad():
-            Y_bem_train = format_bem_as_Y(df_train, entree, inter, scaler_Y, device)
-            Y_bem_test  = format_bem_as_Y(df_test,  entree, inter, scaler_Y, device)
+            Y_bem_train = format_bem_as_Y(df_train, entree, inter, scaler_Y, bem_suffix, device)
+            Y_bem_test  = format_bem_as_Y(df_test,  entree, inter, scaler_Y, bem_suffix, device)
             if entree == 'GV':
                 tr_cnn = gv_to_gm_format(Y_bem_train)
                 te_cnn = gv_to_gm_format(Y_bem_test)
