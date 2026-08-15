@@ -40,6 +40,24 @@ def local_relative_score(df_slice: pd.DataFrame, option: str) -> float:
     return float((np.sqrt(np.mean(err_fn ** 2)) + np.sqrt(np.mean(err_ft ** 2))) * 100.0)
 
 
+def extremum_table(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    """Pour chaque couple (yaw, TSR) de `df`, extrait le point (r, theta) où |value_col| est
+    maximal sur la grille 36x72. `value_col` est un nom de colonne complet (ex: 'Fn_pred',
+    'Fn_SVEN', 'Fn_Castor', 'Fn_BEM_IFP'). Retourne yaw, TSR, absmax, argmax_r, argmax_theta."""
+    results = []
+    for (yaw, tsr), group in df.groupby(["yaw", "TSR"]):
+        idx = group[value_col].abs().idxmax()
+        row = group.loc[idx]
+        results.append({
+            "yaw": yaw,
+            "TSR": tsr,
+            "absmax": abs(row[value_col]),
+            "argmax_r": row["r"],
+            "argmax_theta": row["theta"],
+        })
+    return pd.DataFrame(results)
+
+
 def cp_ct_table(df_pred: pd.DataFrame, pred_prefix: str, true_prefix: str = "SVEN") -> pd.DataFrame:
     """Calcule Cp/Ct pour la colonne de prédiction `pred_prefix` (ex: 'pred', 'BEM', 'Castor') et
     la référence `true_prefix` (par défaut 'SVEN'), regroupés par (yaw[, TSR]).

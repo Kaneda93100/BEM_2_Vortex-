@@ -11,13 +11,15 @@ import numpy as np
 import streamlit as st
 
 from app.core_app import bem_provider
-from app.core_app.inference import predict_model
+from app.core_app.inference import predict_model_chunked
 from app.core_app.models_registry import (
-    BASELINE_BEM,
     describe_model,
+    is_baseline,
     list_available_models,
+    model_bem_suffix,
     parse_model_name,
 )
+from core.config import DEFAULT_BEM_SUFFIX
 
 st.set_page_config(page_title="Générateur", layout="wide")
 st.title("Générateur de prédictions")
@@ -26,7 +28,10 @@ models = list_available_models()
 model_name = st.selectbox("Modèle", models)
 st.caption(describe_model(model_name))
 
-has_v_fields = model_name == BASELINE_BEM or parse_model_name(model_name)["inter"] == "v"
+has_v_fields = is_baseline(model_name) or parse_model_name(model_name)["inter"] == "v"
+# Suffixe BEM requis en entrée par ce modèle (résiduelle '1'/'2'/'2+', ou baseline) ; les modèles
+# résiduelle '0' n'en ont pas besoin, mais bemol reste utilisé pour générer la grille (yaw,TSR,r,theta).
+needed_suffix = model_bem_suffix(model_name) or DEFAULT_BEM_SUFFIX
 
 EXPORT_COLS_BASE = ["yaw", "TSR", "r", "theta", "Fn_pred", "Ft_pred"]
 EXPORT_COLS_V = EXPORT_COLS_BASE + ["V_eff_pred", "alpha_pred"]
@@ -34,6 +39,27 @@ EXPORT_COLS_V = EXPORT_COLS_BASE + ["V_eff_pred", "alpha_pred"]
 
 def _export_columns():
     return EXPORT_COLS_V if has_v_fields else EXPORT_COLS_BASE
+
+
+def _compute_and_predict(pairs):
+    """Calcule la grille BEM puis exécute l'inférence,
+    chaque phase pilotant sa propre barre de progression."""
+    bem_progress = st.progress(0.0, text="Calcul de la BEM (bemol)…")
+
+    def _bem_cb(done, total):
+        bem_progress.progress(done / total, text=f"Calcul de la BEM (bemol)… ({done}/{total})")
+
+    grid_df = bem_provider.compute_bem_multi(pairs, [needed_suffix], nbr_az=72, progress_cb=_bem_cb)
+    bem_progress.empty()
+
+    infer_progress = st.progress(0.0, text="Inférence du modèle…")
+
+    def _infer_cb(done, total):
+        infer_progress.progress(done / total, text=f"Inférence du modèle… ({done}/{total} couples yaw,TSR)")
+
+    df_pred = predict_model_chunked(grid_df, model_name, progress_cb=_infer_cb)
+    infer_progress.empty()
+    return df_pred
 
 
 mode = st.radio("Mode", ["Ponctuel", "Uniforme"], horizontal=True)
@@ -48,9 +74,7 @@ if mode == "Ponctuel":
     if st.button("Calculer", type="primary"):
         t0 = time.perf_counter()
         try:
-            with st.spinner("Calcul BEM (bemol) + inférence…"):
-                grid_df = bem_provider.compute_bem([(yaw, tsr)], nbr_az=72)
-                df_pred = predict_model(grid_df, model_name)
+            df_pred = _compute_and_predict([(yaw, tsr)])
         except Exception as exc:
             st.error(f"Échec du calcul : {exc}")
             st.stop()
@@ -90,9 +114,7 @@ else:
     if st.button("Calculer", type="primary"):
         t0 = time.perf_counter()
         try:
-            with st.spinner(f"Calcul BEM (bemol) + inférence sur {len(pairs)} couples (yaw, TSR)…"):
-                grid_df = bem_provider.compute_bem(pairs, nbr_az=72)
-                df_pred = predict_model(grid_df, model_name)
+            df_pred = _compute_and_predict(pairs)
         except Exception as exc:
             st.error(f"Échec du calcul : {exc}")
             st.stop()
