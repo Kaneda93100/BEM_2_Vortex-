@@ -181,7 +181,12 @@ def envelope_scatter_figure(data: dict, coef: str, color_mode: str, log_scale: b
 
         unit = "" if color_mode == ABSOLUE else "%"
         train_mean = _train_mean(used, unused, err_col)
-        ax.set_title(f"{name}\n{coef} — Moyenne Train: {train_mean:.3g}{unit} | Test: {te[err_col].mean():.3g}{unit}", fontweight="bold")
+        train_used_mean = _train_used_mean(used, err_col)
+        ax.set_title(
+            f"{name}\n{coef} — Moyenne Train: {train_mean:.3g}{unit} | Train U: {train_used_mean:.3g}{unit} | "
+            f"Test: {te[err_col].mean():.3g}{unit}",
+            fontweight="bold",
+        )
         ax.set_xlabel("Yaw (°)")
         ax.set_ylabel("TSR")
         handles = [
@@ -202,6 +207,64 @@ def _train_mean(used, unused, err_col):
     if not parts:
         return float("nan")
     return float(pd.concat(parts).mean())
+
+
+def _train_used_mean(used, err_col):
+    """Moyenne de err_col sur les seuls points de train effectivement utilisés à l'entraînement
+    (sous-échantillonnage _P{pct}, ou totalité des points train pour un baseline BEM)."""
+    return float(used[err_col].mean()) if len(used) else float("nan")
+
+
+def score_scatter_figure(data: dict, option: str, log_scale: bool = False, shared_scale: bool = True):
+    """data : {nom_modele: {'train_used': df, 'train_unused': df, 'test': df}} avec colonnes yaw,
+    TSR, score (Score A ou B local (%), cf. metrics.local_relative_score, agrégé sur la grille
+    (r, theta) de chaque couple yaw, TSR). Même forme que envelope_scatter_figure : carré = train
+    utilisé, triangle = train non utilisé, étoile = test. `shared_scale` : True = échelle de
+    couleur commune à tous les sous-graphiques, False = propre.
+    """
+    err_col = "score"
+    per_model_vals = {
+        name: np.concatenate([d[key][err_col].values for key in ("train_used", "train_unused", "test")])
+        for name, d in data.items()
+    }
+    vmax_of = _vmax_lookup(per_model_vals, shared_scale)
+
+    fig = Figure(figsize=(7 * len(data), 6))
+    for i, (name, d) in enumerate(data.items()):
+        vmax = vmax_of(name)
+        norm = _norm(vmax, log_scale)
+        ax = fig.add_subplot(1, len(data), i + 1)
+        used, unused, te = d["train_used"], d["train_unused"], d["test"]
+
+        if len(unused):
+            ax.scatter(unused["yaw"], unused["TSR"], c=_clip_for_log(unused[err_col].values, log_scale, vmax),
+                       marker="^", s=70, cmap="coolwarm", norm=norm)
+        if len(used):
+            sc = ax.scatter(used["yaw"], used["TSR"], c=_clip_for_log(used[err_col].values, log_scale, vmax),
+                            marker="s", s=70, cmap="coolwarm", norm=norm)
+        else:
+            sc = ax.scatter([], [], c=[], marker="s", s=70, cmap="coolwarm", norm=norm)
+        ax.scatter(te["yaw"], te["TSR"], c=_clip_for_log(te[err_col].values, log_scale, vmax),
+                   marker="*", s=140, cmap="coolwarm", norm=norm, edgecolor="black")
+
+        train_mean = _train_mean(used, unused, err_col)
+        train_used_mean = _train_used_mean(used, err_col)
+        ax.set_title(
+            f"{name}\nScore {option} — Moyenne Train: {train_mean:.3g}% | Train U: {train_used_mean:.3g}% | "
+            f"Test: {te[err_col].mean():.3g}%",
+            fontweight="bold",
+        )
+        ax.set_xlabel("Yaw (°)")
+        ax.set_ylabel("TSR")
+        handles = [
+            Line2D([0], [0], marker="s", color="w", markerfacecolor="gray", markersize=10, label="Train (utilisé)"),
+            Line2D([0], [0], marker="^", color="w", markerfacecolor="gray", markersize=10, label="Train (non utilisé)"),
+            Line2D([0], [0], marker="*", color="w", markerfacecolor="gray", markeredgecolor="black", markersize=15, label="Test"),
+        ]
+        ax.legend(handles=handles)
+        fig.colorbar(sc, ax=ax, label=f"Score {option} (%)")
+    fig.tight_layout()
+    return fig
 
 
 def uniform_curve_figure(x, series: dict, xlabel: str, ylabel: str, title: str):

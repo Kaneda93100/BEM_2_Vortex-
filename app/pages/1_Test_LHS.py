@@ -59,9 +59,18 @@ def _cp_ct_or_empty(df, pred_prefix):
     return metrics.cp_ct_table(df, pred_prefix)
 
 
+_SCORE_COLUMNS = ["yaw", "TSR", "score"]
+
+
+def _score_or_empty(df, option):
+    if len(df) == 0:
+        return pd.DataFrame(columns=_SCORE_COLUMNS)
+    return metrics.score_table(df, option)
+
+
 sous_mode = st.radio(
     "Sous-mode",
-    ["Paramètres", "Carte F_n", "Carte F_t", "Enveloppe C_P", "Enveloppe C_T"],
+    ["Paramètres", "Carte F_n", "Carte F_t", "Enveloppe C_P", "Enveloppe C_T", "Score"],
     horizontal=True,
     key=_key("sous_mode"),
 )
@@ -198,4 +207,22 @@ else:
                 "test": _cp_ct_or_empty(preds["test"][m], "pred"),
             }
         fig = plotting.envelope_scatter_figure(data, coef, color_mode, log_scale=log_scale, shared_scale=shared_scale)
+        st.pyplot(fig)
+
+    elif sous_mode == "Score":
+        c1, c2 = st.columns(2)
+        with c1:
+            log_scale = st.radio("Échelle des couleurs", ["Linéaire", "Logarithmique"], horizontal=True, key=_key("log_scale_score")) == "Logarithmique"
+        with c2:
+            shared_scale = st.radio("Échelle", [plotting.SCALE_COMMUNE, plotting.SCALE_PROPRE], horizontal=True, key=_key("scale_mode_score")) == plotting.SCALE_COMMUNE
+
+        data = {}
+        for m in (model1, model2):
+            train_used, train_unused = _used_unused_train(preds["train"][m], m)
+            data[m] = {
+                "train_used": _score_or_empty(train_used, option),
+                "train_unused": _score_or_empty(train_unused, option),
+                "test": _score_or_empty(preds["test"][m], option),
+            }
+        fig = plotting.score_scatter_figure(data, option, log_scale=log_scale, shared_scale=shared_scale)
         st.pyplot(fig)

@@ -40,6 +40,19 @@ def local_relative_score(df_slice: pd.DataFrame, option: str) -> float:
     return float((np.sqrt(np.mean(err_fn ** 2)) + np.sqrt(np.mean(err_ft ** 2))) * 100.0)
 
 
+def score_table(df_pred: pd.DataFrame, option: str) -> pd.DataFrame:
+    """Score local (%) (option A ou B, cf. local_relative_score), pour chaque couple (yaw, TSR)
+    de df_pred, agrégé sur la grille (r, theta) de ce couple.
+
+    Retourne un DataFrame avec colonnes yaw, TSR, score.
+    """
+    rows = [
+        {"yaw": yaw, "TSR": tsr, "score": local_relative_score(group, option)}
+        for (yaw, tsr), group in df_pred.groupby(["yaw", "TSR"])
+    ]
+    return pd.DataFrame(rows, columns=["yaw", "TSR", "score"])
+
+
 def extremum_table(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
     """Pour chaque couple (yaw, TSR) de `df`, extrait le point (r, theta) où |value_col| est
     maximal sur la grille 36x72. `value_col` est un nom de colonne complet (ex: 'Fn_pred',
